@@ -1,0 +1,10 @@
+{
+  "/page": "app/page.js",
+  "/api/posthog/session-recordings/route": "app/api/posthog/session-recordings/route.js",
+  "/api/posthog/query/route": "app/api/posthog/query/route.js",
+  "/api/posthog/persons/route": "app/api/posthog/persons/route.js",
+  "/api/posthog/feature-flags/route": "app/api/posthog/feature-flags/route.js",
+  "/api/posthog/events/route": "app/api/posthog/events/route.js",
+  "/api/insights/route": "app/api/insights/route.js",
+  "/dashboard/page": "app/dashboard/page.js"
+}
