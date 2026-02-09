@@ -28,7 +28,7 @@ Dashboard metrics (last 7 days):
 - Unique users (persons): ${uniqueUsers}
 - Total pageviews: ${pageviewsTotal}
 - Recordings with console errors: ${recordingsWithErrors}
-- Top event types: ${[...new Set(recentEventTypes)].slice(0, 10).join(", ") || "none"}
+- Top event types: ${Array.from(new Set(recentEventTypes)).slice(0, 10).join(", ") || "none"}
 ${topRecordingDuration != null ? `- Longest recording: ${topRecordingDuration}s` : ""}
 `.trim();
 
