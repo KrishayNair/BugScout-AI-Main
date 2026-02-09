@@ -380,6 +380,34 @@ function StepCard({
   );
 }
 
+/** Blinking arrow between step cards to show progression */
+function StepArrow({ delay = 0 }: { delay?: number }) {
+  return (
+    <motion.div
+      className="flex shrink-0 items-center justify-center"
+      aria-hidden
+    >
+      <motion.div
+        className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-primary/50 bg-primary/10 text-primary"
+        animate={{
+          opacity: [0.6, 1, 0.6],
+          scale: [1, 1.08, 1],
+        }}
+        transition={{
+          duration: 1.8,
+          repeat: Infinity,
+          ease: "easeInOut",
+          delay,
+        }}
+      >
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 function FeatureBadge({
   icon,
   label,
@@ -579,8 +607,9 @@ export default function HomePage() {
               </p>
             </AnimateOnScroll>
 
-            <div className="mt-16 grid gap-8 md:grid-cols-3">
-              <StepCard
+            <div className="mt-16 flex flex-col items-stretch gap-8 md:flex-row md:items-center md:justify-center md:gap-4 lg:gap-6">
+              <div className="min-w-0 flex-1">
+                <StepCard
                 step={1}
                 variant="fadeLeft"
                 title="Connect PostHog"
@@ -597,8 +626,12 @@ export default function HomePage() {
                   <FeatureBadge icon="⚡" label="Event streams" tooltip="Real-time event data from your app" />
                 </div>
               </StepCard>
+              </div>
 
-              <StepCard
+              <StepArrow />
+
+              <div className="min-w-0 flex-1">
+                <StepCard
                 step={2}
                 variant="scaleIn"
                 title="AI detects issues"
@@ -616,10 +649,14 @@ export default function HomePage() {
                   <FeatureBadge icon="🐛" label="Console errors" />
                 </div>
               </StepCard>
+              </div>
 
-              <StepCard
-                step={3}
-                variant="fadeRight"
+              <StepArrow delay={0.9} />
+
+              <div className="min-w-0 flex-1">
+                <StepCard
+                  step={3}
+                  variant="fadeRight"
                 title="Get alerted"
                 description="Receive instant alerts via Email and Slack when bugs are detected. Each issue includes AI-suggested fixes and code locations—so your team ships faster."
                 delay={0.2}
@@ -635,6 +672,7 @@ export default function HomePage() {
                   <FeatureBadge icon="🤖" label="AI fixes" tooltip="AI-suggested fixes and code locations" />
                 </div>
               </StepCard>
+              </div>
             </div>
           </div>
         </section>

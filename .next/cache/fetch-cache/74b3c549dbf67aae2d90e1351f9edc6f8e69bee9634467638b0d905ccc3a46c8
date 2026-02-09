@@ -1,1 +1,0 @@
-{"kind":"FETCH","data":{"headers":{"content-length":"55","content-type":"application/json","date":"Mon, 09 Feb 2026 00:10:42 GMT"},"body":"eyJtYXhfYmF0Y2hfc2l6ZSI6MTAwMCwic3VwcG9ydHNfYmFzZTY0X2VuY29kaW5nIjp0cnVlfQ==","status":200,"url":"https://api.trychroma.com/api/v2/pre-flight-checks"},"revalidate":31536000,"tags":[]}
