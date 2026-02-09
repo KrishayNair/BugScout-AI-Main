@@ -1,0 +1,285 @@
+{
+  "description": "Categories and types of issues PostHog can monitor. Use this to classify session replay findings and suggest fixes.",
+  "source": "PostHog dashboards, session replay, error tracking, feature flags, experiments",
+  "categories": [
+    {
+      "id": "product",
+      "name": "Product & User-Behavior Issues",
+      "description": "Signals that something is broken or confusing in the product from a user-behavior perspective.",
+      "issueTypes": [
+        {
+          "id": "funnel-dropoff",
+          "name": "Funnel & Conversion Issues",
+          "description": "Users failing to complete multi-step flows or conversion rates degrading.",
+          "examples": [
+            "Drop-offs between funnel steps",
+            "Sudden conversion rate decreases",
+            "Users looping or retrying the same step",
+            "Funnels performing differently by browser, country, device, or release"
+          ],
+          "typicalAlert": "Checkout step 2 conversion dropped 25% after the latest deploy",
+          "postHogConfig": ["Funnels", "Trends", "Breakdowns by property"]
+        },
+        {
+          "id": "feature-adoption",
+          "name": "Feature Adoption Problems",
+          "description": "New or existing features not being used as expected.",
+          "examples": [
+            "New features not being discovered",
+            "Existing features suddenly unused",
+            "Feature used once but never again (low retention)",
+            "Power users abandoning a feature"
+          ],
+          "postHogConfig": ["Events", "Funnels", "Feature flags", "Cohorts"]
+        },
+        {
+          "id": "retention-churn",
+          "name": "Retention & Churn Signals",
+          "description": "Users not returning or failing to reach activation milestones.",
+          "examples": [
+            "Users not returning after signup",
+            "Activation milestones not reached",
+            "Drop in DAU/WAU/MAU",
+            "Churn correlated with a specific action or release"
+          ],
+          "postHogConfig": ["Retention", "Cohorts", "Trends"]
+        }
+      ]
+    },
+    {
+      "id": "ux",
+      "name": "UX & Usability Issues (Session Replay–Driven)",
+      "description": "Issues best detected via Session Replay when enabled in PostHog.",
+      "issueTypes": [
+        {
+          "id": "rage-frustration",
+          "name": "Rage & Frustration Signals",
+          "description": "User frustration visible in replay as repeated or ineffective interactions.",
+          "examples": [
+            "Rage clicks (rapid repeated clicks on same element)",
+            "Dead clicks (clicks with no UI response)",
+            "Excessive scrolling",
+            "Repeated form submissions"
+          ],
+          "postHogConfig": ["Session replay", "Rage click / dead click filters", "Event-based replay filters"]
+        },
+        {
+          "id": "broken-ui-flows",
+          "name": "Broken or Confusing UI Flows",
+          "description": "Users stuck, looping, or abandoning flows without completing.",
+          "examples": [
+            "Users stuck on a page for unusually long time",
+            "Users navigating back and forth between the same pages",
+            "Modals opened but never completed",
+            "Forms started but abandoned"
+          ],
+          "discoveryMethod": "Watching replays filtered by failed events; combining replays with funnel drop-offs",
+          "postHogConfig": ["Session replay", "Funnels", "Replay filters by event"]
+        }
+      ]
+    },
+    {
+      "id": "errors",
+      "name": "Error & Reliability Issues (Error Tracking)",
+      "description": "Frontend-focused error tracking; PostHog connects errors to user behavior, not just stack traces.",
+      "issueTypes": [
+        {
+          "id": "js-frontend-errors",
+          "name": "JavaScript & Frontend Errors",
+          "description": "Uncaught exceptions and runtime errors in the browser.",
+          "examples": [
+            "Uncaught JS exceptions",
+            "Promise rejections",
+            "React rendering errors",
+            "Errors tied to a specific browser, OS, or release"
+          ],
+          "postHogConfig": ["Error tracking", "Session replay linked to errors"]
+        },
+        {
+          "id": "error-impact",
+          "name": "Error Impact Analysis",
+          "description": "Understanding who was affected and what they did before/after the error.",
+          "examples": [
+            "Which users experienced the error",
+            "What actions they took before/after",
+            "Whether the error caused funnel drop-off",
+            "Revenue or conversion impact of errors"
+          ],
+          "postHogConfig": ["Error tracking", "Funnels", "User paths"]
+        }
+      ]
+    },
+    {
+      "id": "performance",
+      "name": "Performance Issues (Web Vitals & Timing)",
+      "description": "Performance regressions that affect user experience; PostHog can monitor web vitals and timing.",
+      "issueTypes": [
+        {
+          "id": "web-vitals",
+          "name": "Web Performance Metrics",
+          "description": "Core Web Vitals and load/timing metrics.",
+          "examples": [
+            "LCP (Largest Contentful Paint)",
+            "FID / INP (First Input Delay / Interaction to Next Paint)",
+            "CLS (Cumulative Layout Shift)",
+            "Page load times",
+            "Route change durations (SPAs)"
+          ],
+          "postHogConfig": ["Web vitals", "Performance trends", "Breakdowns by device/browser"]
+        },
+        {
+          "id": "performance-regressions",
+          "name": "Performance Regressions",
+          "description": "Slower experience after deploys or for specific segments.",
+          "examples": [
+            "Slower pages after a deploy",
+            "Performance issues only on mobile",
+            "Performance tied to a specific feature flag"
+          ],
+          "typicalAlert": "LCP increased by 40% for users on mobile Safari",
+          "postHogConfig": ["Trends", "Breakdowns by device/browser/release"]
+        }
+      ]
+    },
+    {
+      "id": "releases",
+      "name": "Feature Flag & Release Issues",
+      "description": "Problems introduced or amplified by feature flags and releases; PostHog answers 'Is this feature breaking the product — and for whom?'",
+      "issueTypes": [
+        {
+          "id": "flag-problems",
+          "name": "Feature Flag Problems",
+          "description": "Flags that cause errors, lower conversion, or worse latency.",
+          "examples": [
+            "Feature flag causing increased errors",
+            "Flag reducing conversion",
+            "Flag increasing latency",
+            "Flag impacting only a user segment"
+          ],
+          "postHogConfig": ["Feature flags", "Trends by flag", "Error tracking by flag"]
+        },
+        {
+          "id": "rollout-killswitch",
+          "name": "Rollout & Kill-Switch Scenarios",
+          "description": "Monitoring gradual rollouts and need for rollback.",
+          "examples": [
+            "Gradual rollout monitoring",
+            "Immediate rollback if metrics degrade",
+            "Comparing flagged vs non-flagged users"
+          ],
+          "postHogConfig": ["Feature flags", "Experiments", "Alerts"]
+        }
+      ]
+    },
+    {
+      "id": "experimentation",
+      "name": "Experimentation & A/B Test Issues",
+      "description": "Issues with experiment design, integrity, or unintended side effects.",
+      "issueTypes": [
+        {
+          "id": "experiment-integrity",
+          "name": "Experiment Integrity Issues",
+          "description": "Problems that invalidate or complicate experiment results.",
+          "examples": [
+            "No statistically significant result",
+            "Sample ratio mismatch",
+            "Variant causing unintended side effects",
+            "Experiment improving one metric but hurting another"
+          ],
+          "postHogConfig": ["Experiments", "Statistical significance", "Variant comparison"]
+        },
+        {
+          "id": "metric-conflicts",
+          "name": "Metric Conflicts",
+          "description": "Winning variant hurts another important metric.",
+          "examples": [
+            "Conversion ↑ but retention ↓",
+            "Engagement ↑ but revenue ↓",
+            "Performance ↓ in winning variant"
+          ],
+          "postHogConfig": ["Experiments", "Multiple metrics", "Trends by variant"]
+        }
+      ]
+    },
+    {
+      "id": "data-quality",
+      "name": "Data Quality & Tracking Issues",
+      "description": "Broken or inconsistent event tracking and schema; critical for reliable dashboards and alerts.",
+      "issueTypes": [
+        {
+          "id": "event-tracking",
+          "name": "Event Tracking Problems",
+          "description": "Events missing, duplicated, or malformed.",
+          "examples": [
+            "Events suddenly stop firing",
+            "Event volume spikes (duplicate tracking)",
+            "Missing properties",
+            "Incorrect property types"
+          ],
+          "typicalDetection": "Dashboards flatline; sudden event explosions; funnel steps disappear",
+          "postHogConfig": ["Events", "Trends", "Data management"]
+        },
+        {
+          "id": "schema-consistency",
+          "name": "Schema & Consistency Issues",
+          "description": "Inconsistent naming or identification across the product.",
+          "examples": [
+            "Multiple names for the same event",
+            "Inconsistent user identification",
+            "Broken autocapture after DOM changes"
+          ],
+          "postHogConfig": ["Event definitions", "Person properties", "Autocapture settings"]
+        }
+      ]
+    },
+    {
+      "id": "business",
+      "name": "Business & Revenue Issues",
+      "description": "Revenue and conversion problems when revenue or subscription data is sent to PostHog.",
+      "issueTypes": [
+        {
+          "id": "revenue-monitoring",
+          "name": "Revenue Monitoring",
+          "description": "Drops in conversion or payment success.",
+          "examples": [
+            "Drop in trial → paid conversion",
+            "Failed payments after UI changes",
+            "Checkout errors tied to browsers or regions"
+          ],
+          "postHogConfig": ["Revenue trends", "Funnels", "Breakdowns by region/browser"]
+        }
+      ]
+    }
+  ],
+  "alertingCapabilities": {
+    "description": "PostHog can configure alerts for the following.",
+    "alertTypes": [
+      "Metric thresholds",
+      "% change over time",
+      "Funnel conversion drops",
+      "Error rate spikes",
+      "Performance regressions",
+      "Feature flag impact"
+    ],
+    "destinations": ["Slack", "Email", "Webhooks"]
+  },
+  "outOfScope": {
+    "description": "PostHog is not designed for these; use other tools.",
+    "items": [
+      "Backend infrastructure monitoring (CPU, memory)",
+      "Log aggregation",
+      "Network-level tracing",
+      "Server uptime checks"
+    ]
+  },
+  "tlbr": [
+    { "category": "Product", "examples": "Funnel drop-offs, feature abandonment" },
+    { "category": "UX", "examples": "Rage clicks, dead clicks, confusion" },
+    { "category": "Errors", "examples": "Frontend crashes, JS exceptions" },
+    { "category": "Performance", "examples": "Web vitals, slow pages" },
+    { "category": "Releases", "examples": "Feature flag regressions" },
+    { "category": "Experiments", "examples": "A/B test side effects" },
+    { "category": "Data", "examples": "Broken tracking, missing events" },
+    { "category": "Business", "examples": "Conversion & revenue drops" }
+  ]
+}

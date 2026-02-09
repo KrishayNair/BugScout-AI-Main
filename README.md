@@ -37,3 +37,27 @@ Next.js app with a landing page, Clerk auth, and a dashboard (blue theme, Inter 
 | `/dashboard` | Main dashboard (protected)    |
 
 Dashboard uses primary blue `#2563eb` (logo-style) and Inter via Tailwind and the Google Fonts link in the layout.
+
+## Neon DB + ChromaDB sync
+
+**Neon** (PostgreSQL) is the source of truth. **ChromaDB** is the vector store for embeddings and semantic search. The backend connects to both and syncs data from Neon to Chroma.
+
+| Component   | Env / link |
+| ----------- | ---------- |
+| Neon        | `DATABASE_URL` in `.env.local` |
+| Chroma Cloud| `CHROMA_API_KEY`, `CHROMA_TENANT`, `CHROMA_DATABASE` in `.env.local` |
+
+**Data flow**
+
+1. **Ingestion** – When data is written to Neon (e.g. `POST /api/db/monitoring`, `POST /api/db/issues`, `POST /api/db/logs`, `POST /api/db/events`), the route calls `VectorSyncService.sync*()` so the same data is sent to Chroma.
+2. **Manual sync** – To backfill or re-sync all Neon data to Chroma:
+   - Call **`GET /api/db/sync-to-chroma`** (browser or curl), or
+   - Run **`npm run vector:sync`** (requires dev server: `npm run dev`).
+3. **Auto-sync** – Call **`GET /api/cron/vector-sync`** on a schedule (e.g. Vercel Cron every 10 min). Optional: set `CRON_SECRET` and send `Authorization: Bearer <CRON_SECRET>`.
+
+**Where sync happens**
+
+- **`lib/vector-sync.service.ts`** – `VectorSyncService`: `syncMonitoring()`, `syncIssues()`, `syncLogs()`, `syncPosthogEvents()`, `syncAll()`.
+- **Ingestion** – API routes that insert into Neon call the service after the insert.
+- **Manual** – `GET /api/db/sync-to-chroma` → `VectorSyncService.syncAll()`.
+- **Cron** – `GET /api/cron/vector-sync` → `VectorSyncService.syncAll()`.

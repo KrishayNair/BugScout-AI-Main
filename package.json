@@ -6,10 +6,18 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "vector:sync": "node scripts/vector-sync.mjs"
   },
   "dependencies": {
+    "@chroma-core/default-embed": "^0.1.9",
     "@clerk/nextjs": "^5.7.0",
+    "@neondatabase/serverless": "^0.10.0",
+    "chromadb": "^3.2.0",
+    "drizzle-orm": "^0.36.0",
     "framer-motion": "^12.33.0",
     "next": "14.2.15",
     "react": "^18.3.1",
@@ -20,6 +28,8 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.4.20",
+    "dotenv": "^16.4.5",
+    "drizzle-kit": "^0.28.0",
     "eslint": "^8",
     "eslint-config-next": "14.2.15",
     "postcss": "^8",

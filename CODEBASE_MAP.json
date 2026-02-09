@@ -1,0 +1,372 @@
+{
+  "meta": {
+    "generatedFor": "LLM codebase understanding and context",
+    "projectName": "Learnify-Placement-Assist",
+    "productName": "Campus2Career",
+    "description": "Unified placement preparation platform: job search, DSA practice with visualizations, AI mock interviews, resume builder, 1:1 mentoring, leaderboard, and placement tracking.",
+    "repositoryRoot": "Learnify-Placement-Assist"
+  },
+
+  "techStack": {
+    "framework": "Next.js 14.2.25 (App Router)",
+    "language": "TypeScript",
+    "styling": "Tailwind CSS, Radix UI, Framer Motion, class-variance-authority, tailwind-merge, clsx",
+    "auth": "Clerk (@clerk/nextjs)",
+    "database": [
+      "Neon (PostgreSQL) via @neondatabase/serverless — primary (Drizzle ORM + raw SQL)",
+      "Vercel Postgres (@vercel/postgres) — jobs and courses API"
+    ],
+    "orm": "Drizzle ORM (drizzle-orm, drizzle-kit)",
+    "ai": "OpenAI API (GPT-4, Whisper), Google Gemini (@google/generative-ai)",
+    "analytics": "PostHog (@posthog/react)",
+    "videoCall": "Zego (@zegocloud/zego-uikit-prebuilt, zego-express-engine-webrtc)",
+    "other": "react-hook-form, zod, mammoth (docx), pdf-parse, React Flow (reactflow), lucide-react, sonner (toast)"
+  },
+
+  "pathAliases": {
+    "@/*": "./src/*"
+  },
+
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:generate": "drizzle-kit generate:pg",
+    "db:push": "drizzle-kit push:pg",
+    "db:studio": "drizzle-kit studio",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "migrate": "ts-node scripts/migrate.ts",
+    "run-sql": "tsx scripts/run-sql.ts",
+    "migrate-sql": "node scripts/migrate-sql.js"
+  },
+
+  "environmentVariables": {
+    "required": [
+      "DATABASE_URL",
+      "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+      "CLERK_SECRET_KEY"
+    ],
+    "optional": [
+      "OPENAI_API_KEY",
+      "NEXT_PUBLIC_GEMINI_API_KEY",
+      "NEXT_PUBLIC_POSTHOG_KEY",
+      "NEXT_PUBLIC_POSTHOG_HOST"
+    ]
+  },
+
+  "repositoryStructure": {
+    "root": [
+      ".gitignore",
+      "components.json",
+      "drizzle.config.ts",
+      "eslint.config.mjs",
+      "generate-secret.js",
+      "next.config.mjs",
+      "package.json",
+      "package-lock.json",
+      "README.md",
+      "SEO_STRATEGY.md",
+      "tailwind.config.js",
+      "tsconfig.json"
+    ],
+    "lib": ["utils.ts"],
+    "scripts": ["migrate-sql.js", "migrate.ts", "run-sql.ts"],
+    "public": {
+      "avatars": ["placeholder.svg"],
+      "images": ["heroImg.png", "logoC2c.png", "rgitLogo.jpeg", "vppcoeLogo.png"],
+      "uploads": "(.webm audio/video files)",
+      "other": ["favicon.ico", "faviconC2c.ico", "file.svg", "globe.svg", "manifest.json", "next.svg", "robots.txt", "sitemap.xml", "vercel.svg", "window.svg"]
+    },
+    "src": {
+      "app": "Next.js App Router (see routing section)",
+      "components": "React components (see components section)",
+      "db": "Legacy/alternate DB layer (Neon raw SQL)",
+      "lib": "Shared lib (AI, DB, data, utils)",
+      "middleware.ts": "Clerk auth middleware",
+      "types": "TypeScript declarations",
+      "utils": "OpenAI client etc."
+    }
+  },
+
+  "routing": {
+    "pages": {
+      "/": "Landing page (src/app/page.tsx) — hero, features, testimonials, sign in/up",
+      "/dashboard": "Dashboard home (src/app/dashboard/page.tsx) — overview, quick links",
+      "/dashboard/layout.tsx": "Dashboard layout with Sidebar",
+      "/dashboard/dsa": "DSA practice page with CodeEditor",
+      "/dashboard/courses": "Courses listing",
+      "/dashboard/courses/[id]": "Single course detail",
+      "/dashboard/courses/dsa/*": "DSA topic pages (arrays, linked-lists, hash-tables, etc.)",
+      "/dashboard/courses/dsa/playground": "DSA playground",
+      "/dashboard/courses/dsa/theory": "DSA theory",
+      "/dashboard/courses/dsa/visualization": "DSA visualization",
+      "/dashboard/courses/graphs/*": "Graphs course (page, playground, theory, visualization)",
+      "/dashboard/courses/sorting/*": "Sorting (page, playground, theory, visualization)",
+      "/dashboard/courses/trees/*": "Trees (page, playground, theory, visualization)",
+      "/dashboard/jobs": "Jobs listing and filters",
+      "/dashboard/leaderboard": "Leaderboard",
+      "/dashboard/mentoring": "Mentoring hub",
+      "/dashboard/mentoring/[roomId]": "Video call room (Zego)",
+      "/dashboard/placements": "Placements tracking",
+      "/dashboard/profile": "Current user profile",
+      "/dashboard/profile/[id]": "Profile by user ID",
+      "/dashboard/resume-builder": "Resume builder",
+      "/dashboard/resume-review": "Resume review",
+      "/dashboard/blog": "Blog listing",
+      "/dashboard/blog/[slug]": "Blog post",
+      "/leaderboard": "Standalone leaderboard (src/app/leaderboard/page.tsx)",
+      "/profile": "Standalone profile (src/app/profile/page.tsx)",
+      "/loading.tsx": "Global loading UI",
+      "/not-found.tsx": "404 with NotFoundTracker (PostHog)"
+    },
+    "apiRoutes": {
+      "GET/POST /api/analyze": "Analyze interview transcript (OpenAI), returns feedback",
+      "GET /api/courses": "List courses (Vercel Postgres: courses, users, course_progress, course_lessons)",
+      "GET /api/dsa/problems": "DSA problems list (in-memory + OpenAI for hints); returns problems with test cases",
+      "GET /api/jobs": "List jobs (Vercel Postgres: jobs table), returns jobs with relative time",
+      "GET /api/leaderboard": "Leaderboard (Neon raw SQL from src/db: users + profiles, ordered by total_points)",
+      "POST /api/points": "Add points for activity (Clerk auth, Drizzle: users.totalPoints += 10)",
+      "GET /api/profile": "Current user profile (Clerk, Drizzle users)",
+      "PUT /api/profile": "Update current user (name, totalPoints, signInStreak)",
+      "GET /api/profile/[id]": "Profile by id (Clerk auth, Neon raw SQL: users + profiles)",
+      "POST /api/resume/analyze": "Analyze resume text (OpenAI), chunked for long content",
+      "POST /api/resume/generate": "Generate resume content",
+      "POST /api/transcribe": "Speech-to-text (OpenAI Whisper), expects multipart audio file",
+      "POST /api/interview/setup": "Create mock interview (Drizzle: mockInterviews)",
+      "GET /api/interview/questions": "Get questions by interviewId (Drizzle: questions)",
+      "POST /api/interview/questions": "Add question to interview",
+      "POST /api/interview/question": "Single question flow",
+      "POST /api/interview/answer": "Submit answer",
+      "POST /api/interview/analyze": "Analyze answer/transcript",
+      "POST /api/interview/report": "Interview report"
+    }
+  },
+
+  "files": [
+    { "path": "src/app/page.tsx", "role": "Landing page; client; Clerk, Button, motion, Link" },
+    { "path": "src/app/layout.tsx", "role": "Root layout; metadata, ClerkProvider, PostHogWrapper, JSON-LD, CSP" },
+    { "path": "src/app/loading.tsx", "role": "Global loading UI" },
+    { "path": "src/app/not-found.tsx", "role": "404 page; uses NotFoundTracker" },
+    { "path": "src/app/providers.jsx", "role": "PostHog init and PostHogWrapper; client" },
+    { "path": "src/app/globals.css", "role": "Global styles" },
+    { "path": "src/app/leaderboard/page.tsx", "role": "Standalone leaderboard page" },
+    { "path": "src/app/profile/page.tsx", "role": "Standalone profile page" },
+    { "path": "src/app/dashboard/layout.tsx", "role": "Dashboard layout; Sidebar + children" },
+    { "path": "src/app/dashboard/page.tsx", "role": "Dashboard home; cards, Icons, toast" },
+    { "path": "src/app/dashboard/dsa/page.tsx", "role": "DSA practice; CodeEditor, tabs, problems" },
+    { "path": "src/app/dashboard/jobs/page.tsx", "role": "Jobs list; cards, tabs, dialog, fetch /api/jobs" },
+    { "path": "src/app/dashboard/leaderboard/page.tsx", "role": "Dashboard leaderboard" },
+    { "path": "src/app/dashboard/placements/page.tsx", "role": "Placements tracking" },
+    { "path": "src/app/dashboard/profile/page.tsx", "role": "Current user profile; form, /api/profile" },
+    { "path": "src/app/dashboard/profile/[id]/page.tsx", "role": "Profile by id; PostHog captureApiError, /api/profile/[id]" },
+    { "path": "src/app/dashboard/resume-builder/page.tsx", "role": "Resume builder form" },
+    { "path": "src/app/dashboard/resume-review/page.tsx", "role": "Resume review flow" },
+    { "path": "src/app/dashboard/mentoring/page.tsx", "role": "Mentoring hub" },
+    { "path": "src/app/dashboard/mentoring/[roomId]/page.tsx", "role": "Video call room; Zego" },
+    { "path": "src/app/dashboard/blog/layout.tsx", "role": "Blog layout" },
+    { "path": "src/app/dashboard/blog/page.tsx", "role": "Blog list" },
+    { "path": "src/app/dashboard/blog/[slug]/page.tsx", "role": "Single blog post" },
+    { "path": "src/app/dashboard/courses/layout.tsx", "role": "Courses layout" },
+    { "path": "src/app/dashboard/courses/page.tsx", "role": "Courses listing" },
+    { "path": "src/app/dashboard/courses/[id]/page.tsx", "role": "Course detail; tabs, progress" },
+    { "path": "src/app/dashboard/courses/dsa/page.tsx", "role": "DSA topic index" },
+    { "path": "src/app/dashboard/courses/dsa/playground/page.tsx", "role": "DSA playground" },
+    { "path": "src/app/dashboard/courses/dsa/theory/page.tsx", "role": "DSA theory" },
+    { "path": "src/app/dashboard/courses/dsa/visualization/page.tsx", "role": "DSA visualization" },
+    { "path": "src/app/dashboard/courses/dsa/arrays/page.tsx", "role": "Arrays topic" },
+    { "path": "src/app/dashboard/courses/dsa/arrays-lists/page.tsx", "role": "Arrays/lists topic" },
+    { "path": "src/app/dashboard/courses/dsa/linkedlists/page.tsx", "role": "Linked lists topic" },
+    { "path": "src/app/dashboard/courses/dsa/linked-lists/page.tsx", "role": "Linked lists (alt)" },
+    { "path": "src/app/dashboard/courses/dsa/hashtables/page.tsx", "role": "Hash tables topic" },
+    { "path": "src/app/dashboard/courses/dsa/hash-tables/page.tsx", "role": "Hash tables (alt)" },
+    { "path": "src/app/dashboard/courses/graphs/page.tsx", "role": "Graphs course index" },
+    { "path": "src/app/dashboard/courses/graphs/playground/page.tsx", "role": "Graphs playground" },
+    { "path": "src/app/dashboard/courses/graphs/theory/page.tsx", "role": "Graphs theory" },
+    { "path": "src/app/dashboard/courses/graphs/visualization/page.tsx", "role": "Graphs viz; GraphVisualizer, GraphAlgorithms, addPointsToUser" },
+    { "path": "src/app/dashboard/courses/sorting/page.tsx", "role": "Sorting course index" },
+    { "path": "src/app/dashboard/courses/sorting/playground/page.tsx", "role": "Sorting playground" },
+    { "path": "src/app/dashboard/courses/sorting/theory/page.tsx", "role": "Sorting theory" },
+    { "path": "src/app/dashboard/courses/sorting/theory/algorithms.ts", "role": "Sorting algo definitions" },
+    { "path": "src/app/dashboard/courses/sorting/visualization/page.tsx", "role": "Sorting visualization" },
+    { "path": "src/app/dashboard/courses/trees/page.tsx", "role": "Trees course index" },
+    { "path": "src/app/dashboard/courses/trees/playground/page.tsx", "role": "Trees playground" },
+    { "path": "src/app/dashboard/courses/trees/theory/page.tsx", "role": "Trees theory" },
+    { "path": "src/app/dashboard/courses/trees/theory/algorithms.ts", "role": "Tree algo definitions" },
+    { "path": "src/app/dashboard/courses/trees/visualization/page.tsx", "role": "Trees visualization; addPointsToUser" },
+    { "path": "src/app/api/analyze/route.ts", "role": "POST; analyze transcript (OpenAI); hardcoded key" },
+    { "path": "src/app/api/courses/route.ts", "role": "GET; courses from Vercel Postgres" },
+    { "path": "src/app/api/dsa/problems/route.ts", "role": "GET; in-memory DSA problems; OpenAI for hints" },
+    { "path": "src/app/api/jobs/route.ts", "role": "GET; jobs from Vercel Postgres" },
+    { "path": "src/app/api/leaderboard/route.ts", "role": "GET; leaderboard from Neon (src/db)" },
+    { "path": "src/app/api/points/route.ts", "role": "POST; add points (Clerk, Drizzle users)" },
+    { "path": "src/app/api/profile/route.ts", "role": "GET/PUT; current user (Clerk, Drizzle)" },
+    { "path": "src/app/api/profile/[id]/route.ts", "role": "GET; profile by id (Neon raw SQL)" },
+    { "path": "src/app/api/resume/analyze/route.ts", "role": "POST; resume analysis (OpenAI, chunked)" },
+    { "path": "src/app/api/resume/generate/route.ts", "role": "POST; resume generation (OpenAI)" },
+    { "path": "src/app/api/transcribe/route.ts", "role": "POST; Whisper transcription; hardcoded key" },
+    { "path": "src/app/api/interview/setup/route.ts", "role": "POST; create mock interview (Drizzle)" },
+    { "path": "src/app/api/interview/questions/route.ts", "role": "GET/POST; questions by interviewId (Drizzle)" },
+    { "path": "src/app/api/interview/question/route.ts", "role": "Single question (Drizzle)" },
+    { "path": "src/app/api/interview/answer/route.ts", "role": "POST; submit answer (userAnswers)" },
+    { "path": "src/app/api/interview/analyze/route.ts", "role": "Analyze answer; uses @/utils/openai analyzeAnswer" },
+    { "path": "src/app/api/interview/report/route.ts", "role": "Interview report (OpenAI)" },
+    { "path": "src/middleware.ts", "role": "Clerk auth; protect /dashboard; redirect auth routes" },
+    { "path": "src/db/index.ts", "role": "Neon raw SQL; getUserByEmail, getLeaderboard, addPoints" },
+    { "path": "src/db/schema.ts", "role": "Drizzle schema (drizzle.config); users, jobs, DSA, interviews, placements" },
+    { "path": "src/lib/db/index.ts", "role": "Neon + Drizzle; db, query(); used by profile, points, interview" },
+    { "path": "src/lib/db/schema.ts", "role": "Drizzle schema; users (clerkId), mockInterviews, questions, userAnswers" },
+    { "path": "src/lib/db/schema/index.ts", "role": "Legacy schema (users, sessions)" },
+    { "path": "src/lib/db/schema/users.ts", "role": "Users table def" },
+    { "path": "src/lib/db/schema/sessions.ts", "role": "Sessions table def" },
+    { "path": "src/lib/db/migrate.ts", "role": "DB migration helper" },
+    { "path": "src/lib/db.ts", "role": "DB utility if any" },
+    { "path": "src/lib/utils.ts", "role": "cn() for class names" },
+    { "path": "src/lib/gemini.ts", "role": "Gemini client; chatSession" },
+    { "path": "src/lib/points.ts", "role": "addPointsToUser(); calls POST /api/points" },
+    { "path": "src/lib/posthog-ux.ts", "role": "PostHog UX helpers (404, api errors)" },
+    { "path": "src/lib/ai/interview.ts", "role": "generateInterviewQuestions (OpenAI)" },
+    { "path": "src/lib/data/dsa-theory.ts", "role": "DSA theory content" },
+    { "path": "src/lib/data/graph-theory.ts", "role": "Graph theory content" },
+    { "path": "src/lib/data/sorting-theory.ts", "role": "Sorting theory content" },
+    { "path": "src/utils/openai.ts", "role": "OpenAI client; analyzeAnswer used by interview/analyze" },
+    { "path": "src/types/pdf-parse.d.ts", "role": "Types for pdf-parse" },
+    { "path": "src/components/sidebar.tsx", "role": "Dashboard nav; Clerk SignOutButton" },
+    { "path": "src/components/theme-provider.tsx", "role": "next-themes provider" },
+    { "path": "src/components/providers.tsx", "role": "Context providers" },
+    { "path": "src/components/icons.tsx", "role": "Icons component" },
+    { "path": "src/components/code-playground.tsx", "role": "Code playground UI" },
+    { "path": "src/components/dsa/CodeEditor.tsx", "role": "DSA code editor" },
+    { "path": "src/components/graph-visualizer.tsx", "role": "Graph visualization" },
+    { "path": "src/components/graph-algorithms.tsx", "role": "Graph algorithms UI" },
+    { "path": "src/components/theory-section.tsx", "role": "Theory content block" },
+    { "path": "src/components/latest-blogs.tsx", "role": "Blog list component" },
+    { "path": "src/components/mentoring/video-call.tsx", "role": "Zego video call" },
+    { "path": "src/components/ux/not-found-tracker.tsx", "role": "PostHog 404 capture" },
+    { "path": "src/components/ui/*.tsx", "role": "Radix UI primitives (button, card, dialog, etc.)" }
+  ],
+
+  "database": {
+    "drizzleConfig": "drizzle.config.ts uses schema: ./src/db/schema.ts, out: ./drizzle, driver: pg, DATABASE_URL",
+    "primarySchema": "src/db/schema.ts (used by drizzle-kit)",
+    "tablesInSrcDbSchema": [
+      "users (id, name, email, password, createdAt, updatedAt)",
+      "accounts (OAuth adapter)",
+      "sessions",
+      "verificationTokens",
+      "profiles (id->users, phoneNumber, city, codingSkills, bio)",
+      "learnify_points (id, userId, points, activityType, activityId)",
+      "jobs (title, company, location, description, requirements, salary, type, recruiterId)",
+      "job_applications (jobId, userId, status, resumeUrl, coverLetter)",
+      "dsa_problems (title, description, difficulty, category, testCases, solution)",
+      "user_dsa_progress (userId, problemId, solved, solution)",
+      "interview_sessions (userId, type, questions, answers, feedback, score)",
+      "placements (company, position, studentId, package, date)",
+      "courses (id, title, description, userId)",
+      "lessons (id, title, content, courseId, userId)"
+    ],
+    "secondarySchema": "src/lib/db/schema.ts (Neon + Drizzle in code)",
+    "tablesInLibDbSchema": [
+      "users (id uuid, clerkId, email, name, totalPoints, signInStreak)",
+      "courses (id uuid, title, description, userId)",
+      "lessons (id uuid, title, content, courseId, userId, completed)",
+      "user_dsa_progress (userId, points, signInStreak)",
+      "sessions (userId, token, expiresAt)",
+      "mock_interviews (userId, title, description, difficulty, topics, status, score, feedback)",
+      "questions (interviewId, content, type, difficulty, topic, expectedAnswer)",
+      "user_answers (questionId, userId, answer, score, feedback)"
+    ],
+    "dbClients": {
+      "src/db/index.ts": "Neon raw SQL (sql`...`), helpers: getUserByEmail, getUserPoints, getLeaderboard, addPoints. Used by: API leaderboard.",
+      "src/lib/db/index.ts": "Neon + Drizzle with schema from lib/db/schema. Used by: API profile, points, interview/*."
+    },
+    "vercelPostgres": "Used in api/jobs/route.ts and api/courses/route.ts (@vercel/postgres)."
+  },
+
+  "components": {
+    "sidebar": "src/components/sidebar.tsx — Dashboard nav (Dashboard, DSA, Courses, Jobs, Resume Builder, Resume Review, Mock Interview, Mentoring, Blog, Leaderboard, Placements, Profile), SignOut, logo",
+    "theme-provider": "src/components/theme-provider.tsx — next-themes wrapper",
+    "providers": "src/components/providers.tsx — likely theme/context",
+    "icons": "src/components/icons.tsx — Icons used in dashboard",
+    "code-playground": "src/components/code-playground.tsx — Code run/editor UI",
+    "dsa/CodeEditor": "src/components/dsa/CodeEditor.tsx — DSA code editor",
+    "graph-visualizer": "src/components/graph-visualizer.tsx — Graph viz + algorithms",
+    "graph-algorithms": "src/components/graph-algorithms.tsx — Graph algo list/run",
+    "theory-section": "src/components/theory-section.tsx — Theory content block",
+    "latest-blogs": "src/components/latest-blogs.tsx — Blog list",
+    "mentoring/video-call": "src/components/mentoring/video-call.tsx — Zego video call UI",
+    "ux/not-found-tracker": "src/components/ux/not-found-tracker.tsx — PostHog 404 capture",
+    "ui/*": "Radix-based primitives: accordion, alert, avatar, badge, button, card, checkbox, dialog, input, label, progress, radio-group, scroll-area, select, slider, switch, table, tabs, textarea, toast, toaster, use-toast"
+  },
+
+  "lib": {
+    "utils": "src/lib/utils.ts — cn() (clsx + tailwind-merge)",
+    "db.ts": "src/lib/db.ts — if present, DB helper",
+    "gemini.ts": "src/lib/gemini.ts — GoogleGenerativeAI (gemini-1.5-flash), chatSession export",
+    "points.ts": "src/lib/points.ts — addPointsToUser(activityType, activityId), calls POST /api/points",
+    "posthog-ux.ts": "src/lib/posthog-ux.ts — PostHog UX helpers (capture404, captureApiError, etc.)",
+    "ai/interview.ts": "src/lib/ai/interview.ts — generateInterviewQuestions(role, skills, experience, type) via OpenAI GPT-4, returns Question[]",
+    "data/dsa-theory.ts": "DSA theory content",
+    "data/graph-theory.ts": "Graph theory content",
+    "data/sorting-theory.ts": "Sorting theory content",
+    "db/index.ts": "Neon + Drizzle (see database section)",
+    "db/schema.ts": "Tables for users, courses, lessons, sessions, mockInterviews, questions, userAnswers, userDsaProgress",
+    "db/schema/*": "Alternate schema (users, sessions with token)",
+    "utils/openai.ts": "OpenAI client"
+  },
+
+  "middleware": {
+    "file": "src/middleware.ts",
+    "behavior": "Clerk clerkMiddleware. Protects /dashboard(.*). Redirects signed-in users from /sign-in, /sign-up to /dashboard. Matcher: all except _next, static assets; always for /api and /trpc."
+  },
+
+  "layoutAndProviders": {
+    "rootLayout": "src/app/layout.tsx — ClerkProvider (dark theme, redirects), ThemeProvider, PostHogWrapper, Inter font, metadata + JSON-LD, CSP, favicon",
+    "providers": "src/app/providers.jsx — PostHog init (NEXT_PUBLIC_POSTHOG_KEY), PostHogProvider, PostHogWrapper (lazy load provider)"
+  },
+
+  "fileToPurposeMap": {
+    "src/app/page.tsx": "Landing: Clerk SignIn/SignUp, hero, categories, stats, features, testimonials, footer. Client component.",
+    "src/app/layout.tsx": "Root layout: metadata, ClerkProvider, PostHogWrapper, body. No ThemeProvider in snippet but referenced in README.",
+    "src/app/dashboard/page.tsx": "Dashboard home: cards, Icons, toast, quick links to DSA, jobs, resume, etc.",
+    "src/app/dashboard/layout.tsx": "Sidebar + children flex layout",
+    "src/db/schema.ts": "Drizzle schema for auth + app tables (users, jobs, DSA, interviews, placements, courses). Used by drizzle.config.",
+    "src/lib/db/schema.ts": "Drizzle schema for Neon (users by clerkId, courses, mockInterviews, questions, userAnswers). Used by lib/db/index.",
+    "src/lib/db/index.ts": "drizzle(neon(DATABASE_URL), { schema }), query() helper. Exports db, sql.",
+    "src/db/index.ts": "Neon sql client, getUserByEmail, getUserPoints, getLeaderboard, addPoints.",
+    "drizzle.config.ts": "Points to src/db/schema.ts, out ./drizzle, pg, DATABASE_URL.",
+    "next.config.mjs": "images.domains [unsplash], webpack fallbacks (fs, net, tls, etc.), output standalone, Cache-Control headers."
+  },
+
+  "importGraphSummary": {
+    "from @/lib/utils": "layout (cn), many components",
+    "from @/components/ui/*": "Most pages and feature components (Button, Card, Input, Tabs, Dialog, etc.)",
+    "from @/lib/db/index + schema": "api/profile, api/points, api/interview/*",
+    "from @/db/index": "api/leaderboard (raw sql)",
+    "from @vercel/postgres": "api/jobs, api/courses",
+    "from @clerk/nextjs": "layout, page, middleware, api (auth())",
+    "from @/lib/points": "Dashboard courses (e.g. trees/visualization, graphs/visualization) for addPointsToUser",
+    "from @/lib/posthog-ux": "not-found, dashboard profile [id]",
+    "from @/components/sidebar": "dashboard/layout",
+    "from @/components/dsa/CodeEditor": "dashboard/dsa page",
+    "from @/components/graph-visualizer + graph-algorithms": "dashboard/courses/graphs/visualization"
+  },
+
+  "featureFlow": {
+    "auth": "Clerk (middleware protects /dashboard). Sign in/up on landing; redirect to /dashboard.",
+    "points": "Frontend calls addPointsToUser() -> POST /api/points -> Drizzle update users.totalPoints. Leaderboard reads from Neon (users + profiles).",
+    "jobs": "Dashboard jobs page -> GET /api/jobs -> Vercel Postgres jobs table.",
+    "courses": "Dashboard courses -> GET /api/courses -> Vercel Postgres (courses, course_progress, etc.). Course [id] and topic pages (DSA, graphs, sorting, trees) use local theory data + visualizations.",
+    "dsa": "Dashboard DSA -> CodeEditor, GET /api/dsa/problems for problems (in-memory list in route). Theory/playground/visualization under courses/dsa, courses/graphs, etc.",
+    "interview": "Setup (POST /api/interview/setup) -> questions (GET/POST /api/interview/questions) -> answer/analyze/report. OpenAI for generation (lib/ai/interview) and analysis (api/analyze, api/interview/analyze). Transcribe: POST /api/transcribe (Whisper).",
+    "resume": "Resume builder page, resume review -> POST /api/resume/analyze (OpenAI).",
+    "mentoring": "Dashboard mentoring -> [roomId] page -> Zego video-call component.",
+    "profile": "GET/PUT /api/profile (self), GET /api/profile/[id] (by id). Uses Drizzle and Neon raw SQL.",
+    "leaderboard": "GET /api/leaderboard uses src/db index (Neon raw SQL users + profiles)."
+  },
+
+  "securityNotes": {
+    "hardcodedSecrets": "api/transcribe/route.ts and api/analyze/route.ts contain hardcoded OpenAI API key — must be moved to env (OPENAI_API_KEY).",
+    "csp": "layout.tsx sets Content-Security-Policy for Clerk, PostHog, images, etc."
+  }
+}

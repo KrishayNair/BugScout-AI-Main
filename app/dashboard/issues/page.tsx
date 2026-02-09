@@ -1,7 +1,7 @@
 "use client";
 
 import { UserButton, useUser } from "@clerk/nextjs";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type Recording = {
   id: string;
@@ -18,6 +18,8 @@ type Recording = {
   person?: { distinct_id?: string };
 };
 
+type Severity = "Critical" | "High" | "Medium" | "Low";
+
 type IssueFromRecording = {
   recordingId: string;
   recording: Recording;
@@ -25,12 +27,32 @@ type IssueFromRecording = {
   description: string;
   suggestedFix?: string;
   codeLocation?: string;
-  severity: "Critical";
+  codeSnippetHint?: string;
+  posthogCategoryId?: string;
+  posthogIssueTypeId?: string;
+  severity: Severity;
   instances: number;
   timeAgo: string;
   firstDetected: string;
   status: string;
+  approved?: boolean;
+  approvedRating?: number;
 };
+
+function severityClass(severity: Severity): string {
+  switch (severity) {
+    case "Critical":
+      return "bg-red-100 text-red-700";
+    case "High":
+      return "bg-orange-100 text-orange-700";
+    case "Medium":
+      return "bg-amber-100 text-amber-700";
+    case "Low":
+      return "bg-gray-100 text-gray-700";
+    default:
+      return "bg-gray-100 text-gray-700";
+  }
+}
 
 function WarningIcon({ className }: { className?: string }) {
   return (
@@ -76,17 +98,157 @@ function formatFirstDetected(iso: string | undefined): string {
   }
 }
 
+type LoadingStep = "recordings" | "analyzing" | "suggesting" | null;
+
 export default function IssuesPage() {
   const { user } = useUser();
   const [loading, setLoading] = useState(true);
+  const [loadingStep, setLoadingStep] = useState<LoadingStep>("recordings");
   const [error, setError] = useState<string | null>(null);
   const [issues, setIssues] = useState<IssueFromRecording[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [replayEmbedUrl, setReplayEmbedUrl] = useState<string | null>(null);
   const [replayLoading, setReplayLoading] = useState(false);
   const [replayError, setReplayError] = useState<string | null>(null);
+  const [showRatingForId, setShowRatingForId] = useState<string | null>(null);
+  const [ratingForId, setRatingForId] = useState<Record<string, number>>({});
+  const [showReviseForId, setShowReviseForId] = useState<string | null>(null);
+  const [reviseInstructions, setReviseInstructions] = useState("");
+  const [reviseLoading, setReviseLoading] = useState(false);
+  const loadInProgressRef = useRef(false);
 
-  const selected = issues.find((i) => i.recordingId === selectedId) ?? issues[0] ?? null;
+  type StatusFilter = "unresolved" | "all" | "resolved";
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("unresolved");
+
+  const filteredIssues =
+    statusFilter === "unresolved"
+      ? issues.filter((i) => i.status !== "Resolved")
+      : statusFilter === "resolved"
+        ? issues.filter((i) => i.status === "Resolved")
+        : issues;
+
+  const selected =
+    filteredIssues.find((i) => i.recordingId === selectedId) ??
+    filteredIssues[0] ??
+    issues.find((i) => i.recordingId === selectedId) ??
+    issues[0] ??
+    null;
+
+  const handleApproveSubmit = useCallback(
+    async (issue: IssueFromRecording, rating: number) => {
+      if (rating < 1 || rating > 5) return;
+      try {
+        const [logRes, patchRes] = await Promise.all([
+          fetch("/api/db/logs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recordingId: issue.recordingId,
+              title: issue.title,
+              description: issue.description,
+              severity: issue.severity,
+              suggestedFix: issue.suggestedFix ?? "",
+              developerRating: rating,
+            }),
+          }),
+          fetch(`/api/db/issues/${encodeURIComponent(issue.recordingId)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              approved: true,
+              approvedRating: rating,
+              approvedAt: new Date().toISOString(),
+            }),
+          }),
+        ]);
+        if (!logRes.ok && patchRes.ok) {
+          await fetch("/api/issues/log-approval", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recordingId: issue.recordingId,
+              title: issue.title,
+              suggestedFix: issue.suggestedFix,
+              rating,
+            }),
+          });
+        }
+        setIssues((prev) =>
+          prev.map((i) =>
+            i.recordingId === issue.recordingId ? { ...i, approved: true, approvedRating: rating } : i
+          )
+        );
+        setShowRatingForId(null);
+        setRatingForId((r) => ({ ...r, [issue.recordingId]: rating }));
+      } catch {
+        // ignore
+      }
+    },
+    []
+  );
+
+  const handleReviseSubmit = useCallback(
+    async (issue: IssueFromRecording) => {
+      if (!reviseInstructions.trim() || reviseLoading) return;
+      setReviseLoading(true);
+      try {
+        const monitoredIssue = {
+          recordingId: issue.recordingId,
+          posthogCategoryId: issue.posthogCategoryId ?? "ux",
+          posthogIssueTypeId: issue.posthogIssueTypeId ?? "rage-frustration",
+          title: issue.title,
+          description: issue.description,
+          severity: issue.severity,
+          codeLocation: issue.codeLocation ?? "",
+          codeSnippetHint: issue.codeSnippetHint,
+          startUrl: issue.recording?.start_url,
+        };
+        const res = await fetch("/api/issues/suggest-fix", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            issues: [monitoredIssue],
+            revisionInstructions: reviseInstructions.trim(),
+            previousSuggestedFix: issue.suggestedFix,
+          }),
+        });
+        const data = await res.json();
+        const fixes = Array.isArray(data?.suggestedFixes) ? data.suggestedFixes : [];
+        const fix = fixes.find((f: { recordingId: string }) => f.recordingId === issue.recordingId);
+        if (fix?.suggestedFix) {
+          try {
+            await fetch(`/api/db/issues/${encodeURIComponent(issue.recordingId)}/revisions`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                instruction: reviseInstructions.trim(),
+                suggestedFixAfter: fix.suggestedFix,
+              }),
+            });
+            await fetch(`/api/db/issues/${encodeURIComponent(issue.recordingId)}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ suggestedFix: fix.suggestedFix }),
+            });
+          } catch {
+            // ignore
+          }
+          setIssues((prev) =>
+            prev.map((i) =>
+              i.recordingId === issue.recordingId ? { ...i, suggestedFix: fix.suggestedFix } : i
+            )
+          );
+          setShowReviseForId(null);
+          setReviseInstructions("");
+        }
+      } catch {
+        // ignore
+      } finally {
+        setReviseLoading(false);
+      }
+    },
+    [reviseInstructions, reviseLoading]
+  );
 
   const loadReplay = useCallback(async (recordingId: string) => {
     setReplayError(null);
@@ -114,6 +276,7 @@ export default function IssuesPage() {
         const recRes = await fetch(`/api/posthog/session-recordings?limit=50&date_from=-7d&${t}`);
         if (!recRes.ok) {
           setError("Failed to load session recordings");
+          loadInProgressRef.current = false;
           return;
         }
         const recData = await recRes.json();
@@ -170,89 +333,283 @@ export default function IssuesPage() {
           }
         }
 
+        try {
+          await fetch("/api/db/monitoring", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ recordings: list }),
+          });
+        } catch {
+          // ignore
+        }
+
         const hasIssues = (r: Recording) =>
           (r.console_error_count != null && r.console_error_count > 0) ||
           (r.rage_click_count != null && r.rage_click_count > 0) ||
           (r.dead_click_count != null && r.dead_click_count > 0);
         const withErrors = list.filter(hasIssues);
 
-        if (cancelled || withErrors.length === 0) {
-          setIssues([]);
-          setSelectedId(null);
+        if (cancelled) {
+          setLoadingStep(null);
           setLoading(false);
+          loadInProgressRef.current = false;
+          return;
+        }
+        if (withErrors.length === 0) {
+          setSelectedId(null);
+          setLoadingStep(null);
+          setLoading(false);
+          if (list.length > 0) setIssues([]);
+          loadInProgressRef.current = false;
           return;
         }
 
-        const summaries = withErrors.map((r) => ({
-          recordingId: r.id,
-          consoleErrorCount: r.console_error_count ?? 0,
-          clickCount: r.click_count ?? 0,
-          rageClickCount: r.rage_click_count,
-          deadClickCount: r.dead_click_count,
-          durationSeconds: r.recording_duration,
-          startUrl: r.start_url,
-          startTime: r.start_time,
-        }));
+        type DbIssue = {
+          recordingId: string;
+          title: string;
+          description: string;
+          severity: string;
+          codeLocation?: string;
+          codeSnippetHint?: string;
+          posthogCategoryId?: string;
+          posthogIssueTypeId?: string;
+          suggestedFix?: string | null;
+          status?: string;
+          approved?: boolean;
+          approvedRating?: number | null;
+        };
 
-        const analyzeRes = await fetch("/api/issues/analyze", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ recordings: summaries }),
+        const toIssueFromRecording = (rec: Recording, d: DbIssue): IssueFromRecording => ({
+          recordingId: d.recordingId,
+          recording: rec,
+          title: d.title,
+          description: d.description,
+          suggestedFix: d.suggestedFix ?? undefined,
+          codeLocation: d.codeLocation,
+          codeSnippetHint: d.codeSnippetHint,
+          posthogCategoryId: d.posthogCategoryId,
+          posthogIssueTypeId: d.posthogIssueTypeId,
+          severity: (["Critical", "High", "Medium", "Low"].includes(d.severity) ? d.severity : "Medium") as Severity,
+          instances: 1,
+          timeAgo: formatTimeAgo(rec.start_time),
+          firstDetected: formatFirstDetected(rec.start_time),
+          status: d.status === "Resolved" ? "Resolved" : "Unresolved",
+          approved: d.approved,
+          approvedRating: d.approvedRating ?? undefined,
         });
-        const analyzeData = await analyzeRes.json();
-        const analyzed = Array.isArray(analyzeData?.issues) ? analyzeData.issues : [];
 
-        const built: IssueFromRecording[] = withErrors.map((rec) => {
-          const a = analyzed.find((x: { recordingId: string }) => x.recordingId === rec.id) as
-            | { recordingId: string; title?: string; description?: string; suggestedFix?: string; codeLocation?: string }
-            | undefined;
-          const errs = rec.console_error_count ?? 0;
-          const rage = rec.rage_click_count ?? 0;
-          const dead = rec.dead_click_count ?? 0;
-          const parts: string[] = [];
-          if (errs > 0) parts.push(`${errs} console error(s)`);
-          if (rage > 0) parts.push(`${rage} rage click(s)`);
-          if (dead > 0) parts.push(`${dead} dead click(s)`);
-          const fallbackTitle =
-            parts.length > 0 ? `Session with ${parts.join(", ")}` : "Session with issues";
-          const fallbackDesc =
-            parts.length > 0
-              ? `This session had ${parts.join(", ")} and ${rec.click_count ?? 0} total clicks. Watch the replay to investigate.`
-              : `Watch the replay to investigate.`;
-          return {
-            recordingId: rec.id,
-            recording: rec,
-            title: a?.title ?? fallbackTitle,
-            description: a?.description ?? fallbackDesc,
-            suggestedFix: a?.suggestedFix,
-            codeLocation: a?.codeLocation,
-            severity: "Critical",
-            instances: 1,
-            timeAgo: formatTimeAgo(rec.start_time),
-            firstDetected: formatFirstDetected(rec.start_time),
-            status: "Unresolved",
-          };
+        let dbIssues: DbIssue[] = [];
+        try {
+          const dbRes = await fetch("/api/db/issues");
+          const dbData = await dbRes.json();
+          dbIssues = Array.isArray(dbData?.issues) ? dbData.issues : [];
+        } catch {
+          // ignore; we will run analyze for all
+        }
+
+        const existingByRecId = new Map<string, DbIssue>(
+          dbIssues.filter((d) => withErrors.some((r) => r.id === d.recordingId)).map((d) => [d.recordingId, d])
+        );
+        const newRecordings = withErrors.filter((r) => !existingByRecId.has(r.id));
+
+        if (newRecordings.length === 0 && existingByRecId.size > 0) {
+          const fromDb: IssueFromRecording[] = Array.from(existingByRecId.entries()).map(([recordingId, d]) => {
+            const rec = withErrors.find((r) => r.id === recordingId)!;
+            return toIssueFromRecording(rec, d);
+          });
+          if (!cancelled) {
+            setIssues(fromDb);
+            setSelectedId(fromDb[0]?.recordingId ?? null);
+          }
+          setLoadingStep(null);
+          setLoading(false);
+          loadInProgressRef.current = false;
+          return;
+        }
+
+        let built: IssueFromRecording[] = [];
+        if (newRecordings.length > 0) {
+          setLoadingStep("analyzing");
+          const summaries = newRecordings.map((r) => ({
+            recordingId: r.id,
+            consoleErrorCount: r.console_error_count ?? 0,
+            clickCount: r.click_count ?? 0,
+            rageClickCount: r.rage_click_count,
+            deadClickCount: r.dead_click_count,
+            durationSeconds: r.recording_duration,
+            startUrl: r.start_url,
+            startTime: r.start_time,
+          }));
+
+          const analyzeRes = await fetch("/api/issues/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ recordings: summaries }),
+          });
+          const analyzeData = await analyzeRes.json();
+          const monitoredIssues = Array.isArray(analyzeData?.issues) ? analyzeData.issues : [];
+
+          let suggestedFixes: Array<{ recordingId: string; suggestedFix: string; codeLocation: string }> = [];
+          if (monitoredIssues.length > 0 && !cancelled) {
+            setLoadingStep("suggesting");
+            try {
+              const fixRes = await fetch("/api/issues/suggest-fix", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ issues: monitoredIssues }),
+              });
+              const fixData = await fixRes.json();
+              suggestedFixes = Array.isArray(fixData?.suggestedFixes) ? fixData.suggestedFixes : [];
+            } catch {
+              // non-fatal
+            }
+          }
+
+          built = newRecordings.map((rec) => {
+            const a = monitoredIssues.find((x: { recordingId: string }) => x.recordingId === rec.id) as
+              | {
+                  recordingId: string;
+                  title?: string;
+                  description?: string;
+                  codeLocation?: string;
+                  codeSnippetHint?: string;
+                  posthogCategoryId?: string;
+                  posthogIssueTypeId?: string;
+                  severity?: string;
+                }
+              | undefined;
+            const fix = suggestedFixes.find((f) => f.recordingId === rec.id);
+            const errs = rec.console_error_count ?? 0;
+            const rage = rec.rage_click_count ?? 0;
+            const dead = rec.dead_click_count ?? 0;
+            const parts: string[] = [];
+            if (errs > 0) parts.push(`${errs} console error(s)`);
+            if (rage > 0) parts.push(`${rage} rage click(s)`);
+            if (dead > 0) parts.push(`${dead} dead click(s)`);
+            const fallbackTitle =
+              parts.length > 0 ? `Session with ${parts.join(", ")}` : "Session with issues";
+            const fallbackDesc =
+              parts.length > 0
+                ? `This session had ${parts.join(", ")} and ${rec.click_count ?? 0} total clicks. Watch the replay to investigate.`
+                : `Watch the replay to investigate.`;
+            return {
+              recordingId: rec.id,
+              recording: rec,
+              title: a?.title ?? fallbackTitle,
+              description: a?.description ?? fallbackDesc,
+              suggestedFix: fix?.suggestedFix,
+              codeLocation: a?.codeLocation ?? fix?.codeLocation,
+              codeSnippetHint: a?.codeSnippetHint,
+              posthogCategoryId: a?.posthogCategoryId,
+              posthogIssueTypeId: a?.posthogIssueTypeId,
+              severity: (a?.severity && ["Critical", "High", "Medium", "Low"].includes(a.severity) ? a.severity : "Medium") as Severity,
+              instances: 1,
+              timeAgo: formatTimeAgo(rec.start_time),
+              firstDetected: formatFirstDetected(rec.start_time),
+              status: "Unresolved",
+            };
+          });
+
+          try {
+            await fetch("/api/db/issues", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                issues: built.map((b) => ({
+                  recordingId: b.recordingId,
+                  posthogCategoryId: b.posthogCategoryId ?? "ux",
+                  posthogIssueTypeId: b.posthogIssueTypeId ?? "rage-frustration",
+                  title: b.title,
+                  description: b.description,
+                  severity: b.severity,
+                  codeLocation: b.codeLocation ?? "",
+                  codeSnippetHint: b.codeSnippetHint,
+                  startUrl: b.recording?.start_url,
+                  suggestedFix: b.suggestedFix,
+                })),
+              }),
+            });
+          } catch {
+            // ignore
+          }
+        }
+
+        const existingIssues: IssueFromRecording[] = Array.from(existingByRecId.entries()).map(([recordingId, d]) => {
+          const rec = withErrors.find((r) => r.id === recordingId)!;
+          return toIssueFromRecording(rec, d);
         });
+
+        let merged = [...existingIssues, ...built];
+        try {
+          const dbRes2 = await fetch("/api/db/issues");
+          const dbData2 = await dbRes2.json();
+          const dbIssues2 = Array.isArray(dbData2?.issues) ? dbData2.issues : [];
+          const byRec = Object.fromEntries(
+            dbIssues2.map((i: DbIssue) => [i.recordingId, i])
+          );
+          merged = merged.map((b) => {
+            const d = byRec[b.recordingId];
+            if (!d) return b;
+            return {
+              ...b,
+              status: (d.status === "Resolved" ? "Resolved" : b.status) as "Unresolved" | "Resolved",
+              approved: d.approved ?? b.approved,
+              approvedRating: d.approvedRating ?? b.approvedRating,
+            };
+          });
+        } catch {
+          // ignore
+        }
 
         if (!cancelled) {
-          setIssues(built);
-          setSelectedId(built[0].recordingId);
+          setIssues(merged);
+          setSelectedId(merged[0]?.recordingId ?? null);
         }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load issues");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoadingStep(null);
+          setLoading(false);
+        }
+        loadInProgressRef.current = false;
       }
     }
 
     load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      loadInProgressRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
     if (!selected?.recordingId) return;
     loadReplay(selected.recordingId);
   }, [selected?.recordingId, loadReplay]);
+
+  const markResolved = useCallback(async (issue: IssueFromRecording) => {
+    try {
+      await fetch(`/api/db/issues/${encodeURIComponent(issue.recordingId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Resolved" }),
+      });
+    } catch {
+      // ignore
+    }
+    setIssues((prev) =>
+      prev.map((i) => (i.recordingId === issue.recordingId ? { ...i, status: "Resolved" as const } : i))
+    );
+  }, []);
+
+  const unresolvedCount = issues.filter((i) => i.status !== "Resolved").length;
+  const resolvedCount = issues.filter((i) => i.status === "Resolved").length;
+  const filters: { key: StatusFilter; label: string; count: number }[] = [
+    { key: "unresolved", label: "Unresolved", count: unresolvedCount },
+    { key: "all", label: "All", count: issues.length },
+    { key: "resolved", label: "Resolved", count: resolvedCount },
+  ];
 
   if (loading) {
     return (
@@ -272,22 +629,24 @@ export default function IssuesPage() {
             </div>
           </div>
         </header>
-        <div className="flex flex-1 items-center justify-center p-8">
-          <div className="flex flex-col items-center gap-3">
-            <div className="h-10 w-10 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-            <p className="text-sm text-gray-500">Loading issues from session recordings…</p>
+        <div className="flex flex-1 flex-col items-center justify-center p-8">
+          <div className="flex flex-col items-center gap-4 text-center">
+            <div className="h-12 w-12 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <div>
+              <p className="text-sm font-medium text-gray-900">
+                {loadingStep === "recordings" && "Loading session recordings…"}
+                {loadingStep === "analyzing" && "Issue monitoring agent analyzing…"}
+                {loadingStep === "suggesting" && "Solution agent suggesting fixes…"}
+              </p>
+              <p className="mt-1 text-xs text-gray-500">
+                This may take a minute. Please wait until both agents finish.
+              </p>
+            </div>
           </div>
         </div>
       </div>
     );
   }
-
-  const criticalCount = issues.length;
-  const filters = [
-    { label: "Critical", count: criticalCount, active: true },
-    { label: "All", count: criticalCount, active: false },
-    { label: "Resolved", count: 0, active: false },
-  ];
 
   return (
     <div className="flex h-full flex-col">
@@ -296,20 +655,12 @@ export default function IssuesPage() {
           <WarningIcon className="h-6 w-6 text-primary" />
           <h1 className="text-xl font-semibold text-gray-900">Issues</h1>
         </div>
-        <div className="flex items-center gap-4">
-          <button
-            type="button"
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
-          >
-            Mark Resolved
-          </button>
-          <div className="flex items-center gap-3 border-l border-gray-200 pl-4">
-            <div className="text-right text-sm">
-              <p className="font-medium text-gray-900">{user?.firstName ?? user?.username ?? "User"}</p>
-              <p className="text-gray-500">{user?.primaryEmailAddress?.emailAddress ?? ""}</p>
-            </div>
-            <UserButton afterSignOutUrl="/" />
+        <div className="flex items-center gap-3 border-l border-gray-200 pl-4">
+          <div className="text-right text-sm">
+            <p className="font-medium text-gray-900">{user?.firstName ?? user?.username ?? "User"}</p>
+            <p className="text-gray-500">{user?.primaryEmailAddress?.emailAddress ?? ""}</p>
           </div>
+          <UserButton afterSignOutUrl="/" />
         </div>
       </header>
 
@@ -326,12 +677,24 @@ export default function IssuesPage() {
           </div>
         )}
 
-        {issues.length > 0 && selected && (
+        {issues.length > 0 && filteredIssues.length === 0 && (
+          <div className="flex flex-1 items-center justify-center rounded-xl border border-gray-200 bg-white p-8">
+            <p className="text-gray-500">
+              {statusFilter === "unresolved"
+                ? "No unresolved issues."
+                : statusFilter === "resolved"
+                  ? "No resolved issues."
+                  : "No issues match the current filter."}
+            </p>
+          </div>
+        )}
+
+        {issues.length > 0 && filteredIssues.length > 0 && selected && (
           <>
             <div className="mb-4">
               <h2 className="text-lg font-semibold text-gray-900">{selected.title}</h2>
               <div className="mt-1 flex items-center gap-3 text-sm text-gray-500">
-                <span className="rounded bg-red-100 px-2 py-0.5 font-medium text-red-700">
+                <span className={`rounded px-2 py-0.5 font-medium ${severityClass(selected.severity)}`}>
                   {selected.severity}
                 </span>
                 <span>First detected {selected.firstDetected}</span>
@@ -347,10 +710,23 @@ export default function IssuesPage() {
               <div className="mt-3 flex gap-2">
                 {filters.map((f) => (
                   <button
-                    key={f.label}
+                    key={f.key}
                     type="button"
+                    onClick={() => {
+                      setStatusFilter(f.key);
+                      const nextFiltered =
+                        f.key === "unresolved"
+                          ? issues.filter((i) => i.status !== "Resolved")
+                          : f.key === "resolved"
+                            ? issues.filter((i) => i.status === "Resolved")
+                            : issues;
+                      const currentSelectedInNext = nextFiltered.some((i) => i.recordingId === selectedId);
+                      if (!currentSelectedInNext && nextFiltered.length > 0) {
+                        setSelectedId(nextFiltered[0].recordingId);
+                      }
+                    }}
                     className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
-                      f.active
+                      statusFilter === f.key
                         ? "border-red-500 text-red-600"
                         : "border-gray-300 text-gray-600 hover:bg-gray-50"
                     }`}
@@ -364,10 +740,10 @@ export default function IssuesPage() {
             <div className="flex flex-1 gap-6 overflow-hidden min-h-0">
               <div className="flex w-[380px] shrink-0 flex-col overflow-hidden">
                 <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                  Critical Issues ({issues.length})
+                  Issues ({filteredIssues.length})
                 </h3>
                 <div className="flex flex-col gap-2 overflow-y-auto">
-                  {issues.map((issue) => (
+                  {filteredIssues.map((issue) => (
                     <button
                       key={issue.recordingId}
                       type="button"
@@ -380,7 +756,9 @@ export default function IssuesPage() {
                     >
                       <p className="font-medium text-gray-900">{issue.title}</p>
                       <div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
-                        <span className="text-red-600">{issue.severity}</span>
+                        <span className={`rounded px-1.5 py-0.5 font-medium ${severityClass(issue.severity)}`}>
+                          {issue.severity}
+                        </span>
                         <span>
                           {[
                             (issue.recording.console_error_count ?? 0) > 0 && `${issue.recording.console_error_count} err`,
@@ -402,27 +780,138 @@ export default function IssuesPage() {
                     <WarningIcon className="h-5 w-5 text-gray-500" />
                     <h3 className="font-semibold text-gray-900">Issue Description</h3>
                   </div>
-                  <div className="mt-3">
-                    <span className="inline-block rounded bg-amber-100 px-2 py-0.5 text-sm font-medium text-amber-800">
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span
+                      className={`inline-block rounded px-2 py-0.5 text-sm font-medium ${
+                        selected.status === "Resolved" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"
+                      }`}
+                    >
                       {selected.status}
                     </span>
+                    {selected.status !== "Resolved" && (
+                      <button
+                        type="button"
+                        onClick={() => markResolved(selected)}
+                        className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark"
+                      >
+                        Mark Resolved
+                      </button>
+                    )}
                   </div>
                   <p className="mt-3 text-sm text-gray-600">{selected.description}</p>
-                  {selected.codeLocation && (
-                    <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-                      <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Where in the code
-                      </p>
-                      <p className="mt-1 font-mono text-sm text-gray-800">{selected.codeLocation}</p>
+                  {(selected.codeLocation || selected.codeSnippetHint) && (
+                    <div className="mt-4 space-y-2">
+                      {selected.codeLocation && (
+                        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                          <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
+                            Where in the code
+                          </p>
+                          <p className="mt-1 font-mono text-sm text-gray-800">{selected.codeLocation}</p>
+                        </div>
+                      )}
+                      {selected.codeSnippetHint && (
+                        <div className="rounded-lg border border-gray-200 bg-amber-50/80 px-3 py-2">
+                          <p className="text-xs font-medium uppercase tracking-wider text-amber-700">
+                            Code hint
+                          </p>
+                          <p className="mt-1 text-sm text-gray-700">{selected.codeSnippetHint}</p>
+                        </div>
+                      )}
                     </div>
                   )}
                   {selected.suggestedFix && (
-                    <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2">
-                      <p className="text-xs font-medium uppercase tracking-wider text-green-700">
-                        Suggested fix
-                      </p>
-                      <p className="mt-1 text-sm text-gray-700">{selected.suggestedFix}</p>
-                    </div>
+                    <>
+                      <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2">
+                        <p className="text-xs font-medium uppercase tracking-wider text-green-700">
+                          Suggested fix
+                        </p>
+                        <p className="mt-1 text-sm text-gray-700">{selected.suggestedFix}</p>
+                      </div>
+                      {selected.approved ? (
+                        <div className="mt-3 text-sm text-gray-600">
+                          Approved
+                          {selected.approvedRating != null && (
+                            <span className="ml-2 text-amber-600">
+                              · {selected.approvedRating}/5
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowRatingForId(selected.recordingId);
+                              setShowReviseForId(null);
+                            }}
+                            className="rounded-lg border border-green-600 bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowReviseForId(selected.recordingId);
+                              setShowRatingForId(null);
+                            }}
+                            className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                          >
+                            Revise
+                          </button>
+                        </div>
+                      )}
+                      {showRatingForId === selected.recordingId && (
+                        <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                          <p className="text-xs font-medium text-gray-600">Rating (1–5)</p>
+                          <div className="mt-2 flex gap-2">
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <button
+                                key={n}
+                                type="button"
+                                onClick={() => setRatingForId((r) => ({ ...r, [selected.recordingId]: n }))}
+                                className={`h-8 w-8 rounded border text-sm font-medium ${
+                                  ratingForId[selected.recordingId] === n
+                                    ? "border-primary bg-primary text-white"
+                                    : "border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
+                                }`}
+                              >
+                                {n}
+                              </button>
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleApproveSubmit(selected, ratingForId[selected.recordingId] ?? 0)}
+                            disabled={!(ratingForId[selected.recordingId] >= 1 && ratingForId[selected.recordingId] <= 5)}
+                            className="mt-2 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+                          >
+                            Submit
+                          </button>
+                        </div>
+                      )}
+                      {showReviseForId === selected.recordingId && (
+                        <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                          <p className="text-xs font-medium text-gray-600">
+                            Instructions to revise the suggested fix
+                          </p>
+                          <textarea
+                            value={reviseInstructions}
+                            onChange={(e) => setReviseInstructions(e.target.value)}
+                            placeholder="e.g. Make the fix shorter, focus on error handling only..."
+                            rows={3}
+                            className="mt-2 w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleReviseSubmit(selected)}
+                            disabled={!reviseInstructions.trim() || reviseLoading}
+                            className="mt-2 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+                          >
+                            {reviseLoading ? "Regenerating…" : "Submit"}
+                          </button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </section>
 

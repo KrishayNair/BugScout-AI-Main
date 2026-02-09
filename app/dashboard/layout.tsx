@@ -1,5 +1,6 @@
 import { DashboardNav } from "@/components/DashboardNav";
 import { Logo } from "@/components/Logo";
+import { SyncPosthogEvents } from "@/components/SyncPosthogEvents";
 
 export default function DashboardLayout({
   children,
@@ -8,6 +9,7 @@ export default function DashboardLayout({
 }) {
   return (
     <div className="min-h-screen bg-gray-200 p-4 md:p-6">
+      <SyncPosthogEvents />
       <div className="mx-auto flex max-w-[1920px] overflow-hidden rounded-3xl bg-white shadow-sm min-h-[calc(100vh-2rem)] md:min-h-[calc(100vh-3rem)]">
         <aside className="flex w-64 shrink-0 flex-col bg-primary-darker">
           <div className="flex h-16 shrink-0 items-center px-6">

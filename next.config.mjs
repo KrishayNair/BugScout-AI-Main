@@ -1,4 +1,6 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {};
+const nextConfig = {
+  serverExternalPackages: ["chromadb", "@chroma-core/default-embed"],
+};
 
 export default nextConfig;

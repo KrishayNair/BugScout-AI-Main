@@ -51,7 +51,7 @@ ${topRecordingDuration != null ? `- Longest recording: ${topRecordingDuration}s`
           },
         ],
         response_format: { type: "json_object" },
-        max_tokens: 400,
+        max_completion_tokens: 400,
       }),
     });
 

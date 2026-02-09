@@ -4,6 +4,9 @@ const isPublicRoute = createRouteMatcher([
   "/",
   "/sign-in(.*)",
   "/sign-up(.*)",
+  "/api/db/vector-sync",
+  "/api/db/sync-to-chroma",
+  "/api/cron/vector-sync",
 ]);
 
 export default clerkMiddleware((auth, req) => {
