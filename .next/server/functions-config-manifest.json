@@ -1,1 +1,0 @@
-{"version":1,"functions":{"/api/db/sync-to-chroma":{},"/api/cron/vector-sync":{"maxDuration":60},"/api/db/vector-sync":{},"/api/posthog/events":{},"/api/db/events/sync":{},"/api/posthog/feature-flags":{},"/api/posthog/session-recordings":{},"/api/posthog/rage-dead-clicks":{},"/api/posthog/query":{},"/api/posthog/persons":{}}}
