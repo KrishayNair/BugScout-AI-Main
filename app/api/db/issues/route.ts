@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
-import { developerNotificationEmails, issues as issuesTable } from "@/lib/db/schema";
-import { sendNewIssueAlert } from "@/lib/email";
+import { developerNotificationEmails, developerSlackWebhooks, issues as issuesTable } from "@/lib/db/schema";
+import { sendLatestIssueSummary } from "@/lib/email";
 import { sendNewIssueAlertToSlack } from "@/lib/slack";
 import { VectorSyncService } from "@/lib/vector-sync.service";
 import { and, eq, inArray, isNull } from "drizzle-orm";
@@ -102,14 +102,19 @@ export async function POST(request: NextRequest) {
       console.error("[POST /api/db/issues] Chroma sync failed:", err);
     });
 
-    const newIssuePayload = newIssues.map((i) => ({
-      title: i.title,
-      description: i.description,
-      severity: i.severity,
-      recordingId: i.recordingId,
-    }));
-
+    // Send the latest (most recent) new issue to email and Slack
     if (newIssues.length > 0) {
+      const latestNew = newIssues[newIssues.length - 1];
+      const latestPayload = {
+        title: latestNew.title,
+        description: latestNew.description,
+        severity: latestNew.severity,
+        recordingId: latestNew.recordingId,
+        codeLocation: latestNew.codeLocation ?? undefined,
+        startUrl: latestNew.startUrl ?? undefined,
+        suggestedFix: latestNew.suggestedFix ?? undefined,
+      };
+
       if (userId) {
         const recipients = await db
           .select()
@@ -118,24 +123,29 @@ export async function POST(request: NextRequest) {
         if (recipients.length === 0) {
           console.warn("[POST /api/db/issues] New issues detected but no notification emails configured. Add emails in Integration settings.");
         } else {
-          console.info("[POST /api/db/issues] Sending new-issue email alerts to", recipients.length, "recipient(s).");
+          console.info("[POST /api/db/issues] Sending latest-issue email to", recipients.length, "recipient(s).");
           await Promise.all(
             recipients.map(async (row) => {
-              const r = await sendNewIssueAlert(row.email, newIssuePayload);
+              const r = await sendLatestIssueSummary(row.email, latestPayload);
               if (!r.ok) console.error("[POST /api/db/issues] Email to", row.email, "failed:", r.error);
             })
           );
         }
       }
 
-      const slackWebhook = process.env.SLACK_WEBHOOK_URL?.trim();
-      if (slackWebhook) {
-        const slackResult = await sendNewIssueAlertToSlack(slackWebhook, newIssuePayload);
-        if (slackResult.ok) {
-          console.info("[POST /api/db/issues] Slack notification sent.");
-        } else {
-          console.error("[POST /api/db/issues] Slack notification failed:", slackResult.error);
-        }
+      const slackWebhooksList: string[] = [];
+      if (userId) {
+        const rows = await db
+          .select({ webhookUrl: developerSlackWebhooks.webhookUrl })
+          .from(developerSlackWebhooks)
+          .where(eq(developerSlackWebhooks.userId, userId));
+        slackWebhooksList.push(...rows.map((r) => r.webhookUrl));
+      }
+      const envWebhook = process.env.SLACK_WEBHOOK_URL?.trim();
+      if (envWebhook && !slackWebhooksList.includes(envWebhook)) slackWebhooksList.push(envWebhook);
+      for (const webhookUrl of slackWebhooksList) {
+        const slackResult = await sendNewIssueAlertToSlack(webhookUrl, [latestPayload]);
+        if (!slackResult.ok) console.error("[POST /api/db/issues] Slack to webhook failed:", slackResult.error);
       }
     }
 

@@ -89,6 +89,25 @@ function formatTimeAgo(iso: string | undefined): string {
   }
 }
 
+/** Strip repeated Session ID/Time faced and long timestamp lists from stored description for display. */
+function getDisplayDescription(description: string | undefined): string {
+  if (!description?.trim()) return "";
+  let text = description.trim();
+  // Remove "Session ID: <uuid>, Time faced: <timestamp list>" anywhere (not just at start)
+  const sessionTimeBlock =
+    /\s*Session\s+ID:\s*[a-f0-9-]+,\s*Time\s+faced:\s*\d{4}-\d{2}-\d{2}T[\d.:+]+(?:\s*,\s*\d{4}-\d{2}-\d{2}T[\d.:+]+)*\.?\s*/gi;
+  text = text.replace(sessionTimeBlock, " ").trim();
+  // Remove leading line that repeats "Session ID: ... Time faced: ..." (other formats)
+  const sessionTimeLine = /^\s*Session\s+ID:[\s\S]*?Time\s+faced:[^\n]+\n?/i;
+  text = text.replace(sessionTimeLine, "").trim();
+  // Remove a line that is mostly comma-separated ISO timestamps
+  const isoLine = /^\d{4}-\d{2}-\d{2}T[\d:.+-]+(,\s*\d{4}-\d{2}-\d{2}T[\d:.+-]+)+\s*\n?/m;
+  text = text.replace(isoLine, "").trim();
+  // Normalize double spaces left after removal
+  text = text.replace(/\s{2,}/g, " ").trim();
+  return text || description.trim();
+}
+
 function formatFirstDetected(iso: string | undefined): string {
   if (!iso) return "—";
   try {
@@ -109,11 +128,26 @@ function formatTimeFaced(iso: string | undefined): string {
 
 type LoadingStep = "recordings" | "analyzing" | "suggesting" | null;
 
+/** Fetch with one retry on 404 (Next.js dev can 404 until route is compiled). */
+async function fetchWithRetry(
+  url: string,
+  options?: RequestInit,
+  retryDelayMs = 400
+): Promise<Response> {
+  const res = await fetch(url, options);
+  if (res.status === 404 && retryDelayMs > 0) {
+    await new Promise((r) => setTimeout(r, retryDelayMs));
+    return fetch(url, options);
+  }
+  return res;
+}
+
 export default function IssuesPage() {
   const { user } = useUser();
   const [loading, setLoading] = useState(true);
   const [loadingStep, setLoadingStep] = useState<LoadingStep>("recordings");
   const [error, setError] = useState<string | null>(null);
+  const [loadSettled, setLoadSettled] = useState(false);
   const [issues, setIssues] = useState<IssueFromRecording[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [replayEmbedUrl, setReplayEmbedUrl] = useState<string | null>(null);
@@ -125,6 +159,7 @@ export default function IssuesPage() {
   const [reviseInstructions, setReviseInstructions] = useState("");
   const [reviseLoading, setReviseLoading] = useState(false);
   const loadInProgressRef = useRef(false);
+  const sentLatestIssueOnLoadRef = useRef(false);
 
   type StatusFilter = "unresolved" | "all" | "resolved";
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("unresolved");
@@ -292,6 +327,8 @@ export default function IssuesPage() {
         const recRes = await fetch(`/api/posthog/session-recordings?limit=150&date_from=-7d&${t}`);
         if (!recRes.ok) {
           setError("Failed to load session recordings");
+          setLoading(false);
+          setLoadSettled(true);
           loadInProgressRef.current = false;
           return;
         }
@@ -441,7 +478,7 @@ export default function IssuesPage() {
           // Still show event-only issues from DB (from sync/error-events)
           const EVENT_ISSUE_PREFIX = "evt-";
           try {
-            const dbRes0 = await fetch("/api/db/issues");
+            const dbRes0 = await fetchWithRetry("/api/db/issues");
             const dbData0 = await dbRes0.json();
             const dbList = Array.isArray(dbData0?.issues) ? dbData0.issues : [];
             const eventOnly = dbList.filter((i: { recordingId?: string }) => i.recordingId?.startsWith(EVENT_ISSUE_PREFIX));
@@ -465,13 +502,14 @@ export default function IssuesPage() {
           }
           setLoadingStep(null);
           setLoading(false);
+          setLoadSettled(true);
           loadInProgressRef.current = false;
           return;
         }
 
         let dbIssues: DbIssue[] = [];
         try {
-          const dbRes = await fetch("/api/db/issues");
+          const dbRes = await fetchWithRetry("/api/db/issues");
           const dbData = await dbRes.json();
           dbIssues = Array.isArray(dbData?.issues) ? dbData.issues : [];
         } catch {
@@ -494,6 +532,7 @@ export default function IssuesPage() {
           }
           setLoadingStep(null);
           setLoading(false);
+          setLoadSettled(true);
           loadInProgressRef.current = false;
           return;
         }
@@ -538,7 +577,7 @@ export default function IssuesPage() {
             // non-fatal; analyze will use counts only
           }
 
-          const analyzeRes = await fetch("/api/issues/analyze", {
+          const analyzeRes = await fetchWithRetry("/api/issues/analyze", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ recordings: summaries, sessionEvents }),
@@ -608,30 +647,22 @@ export default function IssuesPage() {
           });
 
           try {
-            await fetch("/api/db/issues", {
+            await fetchWithRetry("/api/db/issues", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                issues: built.map((b) => {
-                  const timeFaced = b.recording?.start_time
-                    ? new Date(b.recording.start_time).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })
-                    : "see events";
-                  const prefix = `Session ID: ${b.recordingId}. Time faced: ${timeFaced}.\n\n`;
-                  const description =
-                    (b.description ?? "").trim().startsWith("Session ID:") ? b.description : prefix + (b.description ?? "");
-                  return {
+                issues: built.map((b) => ({
                     recordingId: b.recordingId,
                     posthogCategoryId: b.posthogCategoryId ?? "ux",
                     posthogIssueTypeId: b.posthogIssueTypeId ?? "rage-frustration",
                     title: b.title,
-                    description,
+                    description: (b.description ?? "").trim(),
                     severity: b.severity,
                     codeLocation: b.codeLocation ?? "",
                     codeSnippetHint: b.codeSnippetHint,
                     startUrl: b.recording?.start_url,
                     suggestedFix: b.suggestedFix,
-                  };
-                }),
+                  })),
               }),
             });
           } catch {
@@ -647,7 +678,7 @@ export default function IssuesPage() {
 
         let merged = [...existingIssues, ...built];
         try {
-          const dbRes2 = await fetch("/api/db/issues");
+          const dbRes2 = await fetchWithRetry("/api/db/issues");
           const dbData2 = await dbRes2.json();
           const dbIssues2 = Array.isArray(dbData2?.issues) ? dbData2.issues : [];
           const byRec = Object.fromEntries(
@@ -687,9 +718,13 @@ export default function IssuesPage() {
         if (!cancelled) {
           setIssues(merged);
           setSelectedId(merged[0]?.recordingId ?? null);
+          setLoadSettled(true);
         }
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load issues");
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Failed to load issues");
+          setLoadSettled(true);
+        }
       } finally {
         if (!cancelled) {
           setLoadingStep(null);
@@ -704,6 +739,15 @@ export default function IssuesPage() {
       cancelled = true;
       loadInProgressRef.current = false;
     };
+  }, []);
+
+  // On issues page load/reload: send latest issue summary to notification emails (once per mount).
+  useEffect(() => {
+    if (sentLatestIssueOnLoadRef.current) return;
+    sentLatestIssueOnLoadRef.current = true;
+    fetch("/api/notifications/send-latest-issue", { method: "POST" }).catch(() => {
+      // Fire-and-forget; don't block UI or show errors for this background action
+    });
   }, []);
 
   useEffect(() => {
@@ -759,18 +803,21 @@ export default function IssuesPage() {
           </div>
         </header>
         <div className="flex flex-1 flex-col items-center justify-center p-8">
-          <div className="flex flex-col items-center gap-4 text-center">
-            <div className="h-12 w-12 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <div className="flex flex-col items-center gap-5 text-center max-w-sm">
+            <div className="h-14 w-14 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             <div>
-              <p className="text-sm font-medium text-gray-900">
-                {loadingStep === "recordings" && "Loading session recordings…"}
-                {loadingStep === "analyzing" && "Issue monitoring agent analyzing…"}
-                {loadingStep === "suggesting" && "Solution agent suggesting fixes…"}
+              <p className="text-base font-medium text-gray-900">
+                {loadingStep === "recordings" && "📹 Fetching session recordings…"}
+                {loadingStep === "analyzing" && "🔍 Issue agent analyzing sessions…"}
+                {loadingStep === "suggesting" && "💡 Solution agent suggesting fixes…"}
               </p>
-              <p className="mt-1 text-xs text-gray-500">
-                This may take a minute. Please wait until both agents finish.
+              <p className="mt-2 text-sm text-gray-500">
+                {loadingStep === "recordings" && "Checking your recordings for console errors and rage clicks."}
+                {loadingStep === "analyzing" && "Identifying issues that need your attention."}
+                {loadingStep === "suggesting" && "Almost there — preparing fix suggestions."}
               </p>
             </div>
+            <p className="text-xs text-gray-400">This may take a minute. Thanks for waiting.</p>
           </div>
         </div>
       </div>
@@ -794,15 +841,28 @@ export default function IssuesPage() {
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-6">
-        {error && (
-          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
-            {error}
+        {error && loadSettled && (
+          <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-red-200 bg-red-50/50 p-8 shadow-lg">
+            <p className="text-lg mb-1 text-red-800 font-medium">Couldn’t load issues</p>
+            <p className="text-sm text-red-700 mb-4">{error}</p>
+            <p className="text-sm text-gray-600 mb-4">Please reload the page to try again.</p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary/90"
+            >
+              Reload page
+            </button>
           </div>
         )}
 
-        {issues.length === 0 && !error && (
+        {issues.length === 0 && !error && loadSettled && (
           <div className="flex flex-1 items-center justify-center rounded-2xl border border-primary/10 bg-white p-8 shadow-lg shadow-primary/5">
-            <p className="text-gray-500">No issues from session recordings. Recordings with console errors will appear here.</p>
+            <div className="text-center">
+              <p className="text-2xl mb-2">✨</p>
+              <p className="text-gray-700 font-medium">All clear — no issues detected</p>
+              <p className="mt-1 text-sm text-gray-500">Recordings with console errors or rage clicks will show up here.</p>
+            </div>
           </div>
         )}
 
@@ -940,7 +1000,7 @@ export default function IssuesPage() {
                       </button>
                     )}
                   </div>
-                  <p className="mt-3 text-sm text-gray-600">{selected.description}</p>
+                  <p className="mt-3 text-sm text-gray-600">{getDisplayDescription(selected.description)}</p>
                   {(selected.codeLocation || selected.codeSnippetHint) && (
                     <div className="mt-4 space-y-2">
                       {selected.codeLocation && (

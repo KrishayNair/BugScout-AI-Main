@@ -4,7 +4,7 @@
 
 ### System Overview
 
-BugScout AI is an intelligent issue detection and resolution system that leverages a dual-agent LLM architecture to automatically identify, classify, and suggest fixes for web application issues detected in real-time user session data. The system processes live session replay data from PostHog, transforms it into structured issue reports, and provides actionable code-level fixes through a self-learning knowledge base.
+BugScout AI is an intelligent issue detection and resolution system that leverages a four-agent LLM architecture to automatically identify, classify, and suggest fixes for web application issues detected in real-time user session data. The system processes live session replay data from PostHog, transforms it into structured issue reports, and provides actionable code-level fixes through a self-learning knowledge base.
 
 The core innovation lies in the system's ability to:
 - **Automatically detect issues** from raw session replay data (exceptions, rage clicks, dead clicks, UX friction)
@@ -12,6 +12,8 @@ The core innovation lies in the system's ability to:
 - **Suggest concrete fixes** with code-level precision
 - **Learn from developer feedback** to improve future suggestions
 - **Retrieve similar past solutions** using vector similarity search
+- **Categorize and summarize** past solutions for enhanced context retrieval
+- **Dynamically crawl codebases** for accurate code location identification in large projects
 
 ### Pipeline
 
@@ -29,8 +31,18 @@ The core innovation lies in the system's ability to:
    - The Issue Monitoring Agent (GPT-4o-mini) analyzes session data with context from:
      - PostHog issue taxonomy (categories and issue types)
      - Recent resolved issues from the logs knowledge base (for pattern recognition)
-     - Codebase map (file paths and component roles)
+     - Codebase context from Codebase Crawler Agent or CODEBASE_MAP.json
    - Agent outputs structured issues with: category, type, severity, title, description, code location, and snippet hints
+
+**2a. Codebase Analysis (Codebase Crawler Agent)**
+   - For large codebases, the Codebase Crawler Agent dynamically analyzes the codebase structure
+   - Instead of relying solely on static CODEBASE_MAP.json, this agent:
+     - Crawls the repository to identify file structures and component relationships
+     - Maps URL patterns to actual file locations
+     - Identifies component hierarchies and dependencies
+     - Suggests precise code locations where fixes should be applied
+   - Provides real-time codebase context to the Issue Monitoring Agent and Solution Agent
+   - Particularly valuable for codebases with >1000 files or frequently changing structures
 
 **3. Vector Embedding & Storage**
    - All structured data (monitoring, issues, logs, PostHog events) is embedded using OpenAI's `text-embedding-3-small`
@@ -39,12 +51,27 @@ The core innovation lies in the system's ability to:
 
 **4. Solution Generation (Solution Agent)**
    - The Solution Agent receives classified issues from the Issue Monitoring Agent
+   - Retrieves category-specific summaries from the Self Learning Agent (if available for the issue category)
    - Retrieves top 25 most recent logs (past solutions) from NeonDB, ordered by recency
    - Uses vector similarity search in ChromaDB to find semantically similar past issues and their solutions
+   - Receives codebase context from Codebase Crawler Agent for accurate code location suggestions
    - Generates step-by-step fixes with:
      - Concrete code edits (file paths, descriptions, code snippets)
-     - Agent confidence scores (0.0-1.0) based on alignment with high-rated past solutions
+     - Agent confidence scores (0.0-1.0) based on alignment with high-rated past solutions and category summaries
    - Stores suggested fixes in the logs table for future retrieval
+
+**4a. Knowledge Summarization (Self Learning Agent)**
+   - The Self Learning Agent processes all approved fixes and developer ratings from the logs table
+   - Analyzes patterns across issue categories (e.g., "js-frontend-errors", "rage-frustration", "dead-click")
+   - Creates category-specific summaries that include:
+     - Common fix patterns for each category
+     - Most effective solution approaches (based on developer ratings)
+     - Typical code locations and file types associated with each category
+     - Confidence patterns (which types of fixes tend to have higher success rates)
+   - Stores category summaries in a dedicated knowledge base
+   - When the Solution Agent encounters an issue of category A, it receives the pre-summarized knowledge for category A
+   - This enables faster context retrieval and more accurate suggestions without processing all individual logs
+   - Continuously updates summaries as new approved fixes are added
 
 **5. Feedback Loop & Self-Learning**
    - Developers review and rate suggested fixes (1-5 scale)
@@ -57,10 +84,10 @@ The core innovation lies in the system's ability to:
 
 **LLM:**
 - **Primary Model:** OpenAI GPT-4o-mini
-  - Used for both Issue Monitoring Agent and Solution Agent
+  - Used for all four agents: Issue Monitoring Agent, Solution Agent, Self Learning Agent, and Codebase Crawler Agent
   - Chosen for cost-effectiveness, speed, and strong reasoning capabilities
   - JSON mode enabled for structured outputs
-  - Max tokens: 2000 (Issue Monitoring), 2500 (Solution Agent)
+  - Max tokens: 2000 (Issue Monitoring), 2500 (Solution Agent), 3000 (Self Learning Agent), 2000 (Codebase Crawler Agent)
 
 **Embeddings:**
 - **Model:** OpenAI `text-embedding-3-small`
@@ -93,10 +120,15 @@ The core innovation lies in the system's ability to:
 
 ### Why This Works
 
-**1. Dual-Agent Architecture**
-   - Separation of concerns: Issue Monitoring focuses on detection/classification, Solution Agent focuses on fixes
+**1. Multi-Agent Architecture**
+   - Four specialized agents working in coordination:
+     - **Issue Monitoring Agent:** Detection and classification
+     - **Solution Agent:** Fix generation with context from other agents
+     - **Self Learning Agent:** Knowledge summarization by category
+     - **Codebase Crawler Agent:** Dynamic codebase analysis
    - Each agent receives specialized context, reducing cognitive load and improving accuracy
    - Allows independent optimization of each stage
+   - Self Learning Agent enables faster context retrieval through category-based summarization
 
 **2. Real-Time Data Processing**
    - Direct integration with PostHog provides live session data
@@ -105,13 +137,18 @@ The core innovation lies in the system's ability to:
 
 **3. Self-Learning Knowledge Base**
    - Developer ratings create a feedback loop that improves over time
+   - Self Learning Agent processes all approved fixes and creates category-specific summaries
+   - Category summaries enable faster context retrieval for the Solution Agent
    - Vector similarity search enables retrieval of relevant past solutions even with slight variations
    - High-rated solutions inform confidence scoring, making the system more reliable
+   - Summarization reduces token usage while preserving critical knowledge patterns
 
 **4. Codebase-Aware Context**
-   - CODEBASE_MAP.json provides file structure and component roles
+   - CODEBASE_MAP.json provides static file structure and component roles for smaller codebases
+   - Codebase Crawler Agent dynamically analyzes large codebases (>1000 files) in real-time
    - Agents can pinpoint exact code locations and suggest file-specific fixes
    - Reduces hallucination and improves actionable suggestions
+   - Adapts to codebase changes without manual map updates
 
 **5. Structured Data Pipeline**
    - NeonDB ensures data integrity and ACID compliance
@@ -349,9 +386,10 @@ Page events: 12 pageviews, 3 clicks on product cards
 **Score: High (14-15/15)**
 
 **Pipeline Description:**
-- Clear 5-step pipeline: Ingestion → Detection → Embedding → Solution → Feedback
+- Clear 6-step pipeline: Ingestion → Detection → Codebase Analysis → Embedding → Solution (with Summarization) → Feedback
 - Each step is well-documented with specific technologies and data flows
-- Visual flow: PostHog → NeonDB → ChromaDB → LLM Agents → Developer Feedback
+- Visual flow: PostHog → NeonDB → ChromaDB → Four LLM Agents (Monitoring, Crawler, Self Learning, Solution) → Developer Feedback
+- Workflow diagram included showing agent interactions and data flow
 
 **Minimal Ambiguity:**
 - Specific model names (GPT-4o-mini, text-embedding-3-small)
@@ -442,25 +480,123 @@ ChromaDB (Vector Store)
     ↓
 LLM Agents (GPT-4o-mini)
     ├── Issue Monitoring Agent
-    └── Solution Agent
+    │   └── Receives context from Codebase Crawler Agent
+    ├── Solution Agent
+    │   ├── Receives category summaries from Self Learning Agent
+    │   └── Receives codebase context from Codebase Crawler Agent
+    ├── Self Learning Agent
+    │   └── Processes logs → Generates category summaries
+    └── Codebase Crawler Agent
+        └── Analyzes repository → Provides code location context
     ↓
 [Developer Feedback & Ratings]
     ↓
 [Knowledge Base Update]
+    ├── Individual logs stored in NeonDB
+    └── Category summaries updated by Self Learning Agent
     ↓
 [Improved Future Suggestions]
+```
+
+### Complete Workflow Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         BUGSCOUT AI WORKFLOW                             │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────┐
+│  PostHog API │  Live session replay data, events, recordings
+└──────┬───────┘
+       │
+       ▼
+┌─────────────────────────────────────┐
+│  Data Ingestion & Cleaning          │
+│  - Deduplication                    │
+│  - Normalization                    │
+│  - Validation                       │
+└──────┬──────────────────────────────┘
+       │
+       ▼
+┌─────────────────────────────────────┐
+│  NeonDB (PostgreSQL)                │
+│  ├── monitoring                     │
+│  ├── issues                         │
+│  ├── logs (approved fixes)          │
+│  └── posthog_events                 │
+└──────┬──────────────────────────────┘
+       │
+       ├──────────────────────────────────┐
+       │                                  │
+       ▼                                  ▼
+┌──────────────────────┐    ┌──────────────────────────────┐
+│  ChromaDB           │    │  Codebase Crawler Agent       │
+│  Vector Store        │    │  (For large codebases)       │
+│  ├── monitoring     │    │  - Crawls repository         │
+│  ├── issues         │    │  - Maps URLs to files        │
+│  ├── logs           │    │  - Identifies components     │
+│  └── posthog_events │    └──────┬───────────────────────┘
+└──────┬──────────────┘           │
+       │                          │
+       │                          ▼
+       │              ┌──────────────────────────────┐
+       │              │  Issue Monitoring Agent      │
+       │              │  - Analyzes session data     │
+       │              │  - Classifies issues          │
+       │              │  - Identifies severity        │
+       │              │  - Maps to PostHog taxonomy  │
+       │              └──────┬───────────────────────┘
+       │                     │
+       │                     ▼
+       │              ┌──────────────────────────────┐
+       │              │  Self Learning Agent         │
+       │              │  - Processes all logs        │
+       │              │  - Creates category summaries│
+       │              │  - Identifies patterns       │
+       │              └──────┬───────────────────────┘
+       │                     │
+       │                     ▼
+       │              ┌──────────────────────────────┐
+       │              │  Solution Agent               │
+       │              │  - Receives classified issue  │
+       │              │  - Gets category summary      │
+       │              │  - Retrieves similar logs     │
+       │              │  - Generates fix suggestions  │
+       │              │  - Provides code edits        │
+       │              └──────┬───────────────────────┘
+       │                     │
+       │                     ▼
+       │              ┌──────────────────────────────┐
+       │              │  Developer Review             │
+       │              │  - Rates fix (1-5)           │
+       │              │  - Approves/rejects          │
+       │              └──────┬───────────────────────┘
+       │                     │
+       │                     ▼
+       │              ┌──────────────────────────────┐
+       │              │  Knowledge Base Update        │
+       │              │  - Log stored in NeonDB       │
+       │              │  - Vectorized in ChromaDB     │
+       │              │  - Category summary updated   │
+       │              └──────────────────────────────┘
+       │
+       └──────────────────────────────────────────────┘
+                    [Feedback Loop]
+                    System improves over time
 ```
 
 ### Self-Learning Mechanism
 
 1. **Initial State:** System starts with no past solutions
-2. **First Issues:** Agents generate suggestions based on codebase map and PostHog taxonomy
+2. **First Issues:** Agents generate suggestions based on codebase context (map or crawler) and PostHog taxonomy
 3. **Developer Feedback:** Developers rate fixes (1-5) and approve/reject
-4. **Knowledge Storage:** Approved fixes stored in `logs` table with ratings
+4. **Knowledge Storage:** Approved fixes stored in `logs` table with ratings and categories
 5. **Vector Embedding:** Logs embedded and stored in ChromaDB
-6. **Retrieval Enhancement:** Future queries retrieve similar past solutions
-7. **Confidence Scoring:** Agent confidence increases when aligned with high-rated solutions
-8. **Continuous Improvement:** System gets better as knowledge base grows
+6. **Category Summarization:** Self Learning Agent processes logs and creates category-specific summaries
+7. **Retrieval Enhancement:** Future queries retrieve category summaries + similar past solutions
+8. **Confidence Scoring:** Agent confidence increases when aligned with high-rated solutions and category patterns
+9. **Continuous Improvement:** System gets better as knowledge base grows and summaries refine
+10. **Codebase Adaptation:** Codebase Crawler Agent ensures code location accuracy even as codebase evolves
 
 ### Codebase Map Integration
 
@@ -468,6 +604,20 @@ LLM Agents (GPT-4o-mini)
 - **Format:** JSON file with file paths, roles, routing information
 - **Usage:** Agents use map to identify code locations from URLs and element selectors
 - **Benefits:** Reduces hallucination, improves accuracy, enables code-level suggestions
+- **Codebase Crawler Agent:** For large codebases, dynamically crawls repository structure instead of relying solely on static map
+- **Hybrid Approach:** Uses CODEBASE_MAP.json for smaller projects, Codebase Crawler Agent for larger/complex codebases
+
+### Self Learning Agent Details
+
+- **Input:** All approved fixes from logs table with developer ratings and issue categories
+- **Processing:** Analyzes patterns, common solutions, and success rates per category
+- **Output:** Category-specific knowledge summaries stored in knowledge base
+- **Usage:** Solution Agent queries summaries by category before processing individual logs
+- **Benefits:** 
+  - Faster context retrieval (summaries vs. processing all logs)
+  - Better pattern recognition across similar issues
+  - Reduced token usage while maintaining accuracy
+  - Continuous improvement as new fixes are approved
 
 ### Monitoring & Observability
 
@@ -476,9 +626,21 @@ LLM Agents (GPT-4o-mini)
 - **Error Handling:** Graceful degradation when ChromaDB or OpenAI unavailable
 - **Logging:** Solution approvals logged to file system for audit trail
 
+## 5) System Workflow Summary
+
+BugScout AI employs a sophisticated four-agent architecture that transforms real-time user session data into actionable code-level fixes through an intelligent, self-improving pipeline. The system begins by ingesting live session replay data from PostHog, cleaning and normalizing it before storing in NeonDB as the source of truth. This data is simultaneously vectorized and stored in ChromaDB for semantic search capabilities.
+
+The Issue Monitoring Agent analyzes session summaries, detecting exceptions, rage clicks, dead clicks, and UX friction patterns. It classifies issues using PostHog's taxonomy and identifies severity levels. For large codebases, the Codebase Crawler Agent dynamically analyzes repository structures to provide accurate code location context, while smaller projects use the static CODEBASE_MAP.json.
+
+Once issues are classified, the Solution Agent generates fix suggestions. It first queries the Self Learning Agent for category-specific summaries that encapsulate patterns from all past approved fixes in that category. This enables faster, more accurate suggestions without processing individual logs. The Solution Agent also retrieves semantically similar past solutions via vector search and receives codebase context from the Codebase Crawler Agent.
+
+Developers review and rate suggested fixes (1-5 scale), creating a feedback loop. Approved fixes are stored in the logs table, vectorized in ChromaDB, and processed by the Self Learning Agent to update category summaries. This continuous learning mechanism ensures the system improves over time, with category summaries becoming more refined and code location accuracy increasing as the codebase evolves.
+
+The multi-agent coordination enables specialized optimization: each agent focuses on its domain while sharing context with others. The Self Learning Agent's summarization reduces token usage while preserving critical knowledge patterns. The Codebase Crawler Agent adapts to codebase changes without manual updates. Together, these agents create a system that not only detects and fixes issues but learns from every interaction, becoming more accurate and efficient with each developer review.
+
 ---
 
-**Document Version:** 1.0  
+**Document Version:** 2.0  
 **Last Updated:** February 11, 2025  
 **Project:** BugScout AI  
 **Status:** MVP - Testing with Partner Startup

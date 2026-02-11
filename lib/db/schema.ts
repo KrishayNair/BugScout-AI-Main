@@ -140,6 +140,41 @@ export const developerNotificationEmails = pgTable(
 export type DeveloperNotificationEmailRow = typeof developerNotificationEmails.$inferSelect;
 export type DeveloperNotificationEmailInsert = typeof developerNotificationEmails.$inferInsert;
 
+/**
+ * Slack webhook URLs for issue notifications. Add/remove from Integration page.
+ * Scoped by userId so each user has their own list.
+ */
+export const developerSlackWebhooks = pgTable(
+  "developer_slack_webhooks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull(),
+    webhookUrl: text("webhook_url").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("developer_slack_webhooks_user_url_idx").on(t.userId, t.webhookUrl)]
+);
+
+export type DeveloperSlackWebhookRow = typeof developerSlackWebhooks.$inferSelect;
+export type DeveloperSlackWebhookInsert = typeof developerSlackWebhooks.$inferInsert;
+
+/**
+ * PostHog Personal API key per user. Add/remove from Integration page. One key per user.
+ * Used for session recordings, events, and analytics when set; otherwise falls back to NEXT_POST_HOG_KEY env.
+ */
+export const developerPosthogKeys = pgTable(
+  "developer_posthog_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull().unique(),
+    apiKey: text("api_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  }
+);
+
+export type DeveloperPosthogKeyRow = typeof developerPosthogKeys.$inferSelect;
+export type DeveloperPosthogKeyInsert = typeof developerPosthogKeys.$inferInsert;
+
 export type LogRow = typeof logs.$inferSelect;
 export type LogInsert = typeof logs.$inferInsert;
 export type PosthogEventRow = typeof posthogEvents.$inferSelect;

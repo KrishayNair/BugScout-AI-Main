@@ -1,25 +1,34 @@
+import { getPosthogKey } from "@/lib/posthog-key";
+
 const POSTHOG_BASE = "https://eu.posthog.com";
 const PROJECT_ID = "123893";
 
-function getAuthHeaders(): HeadersInit {
-  const key = process.env.NEXT_POST_HOG_KEY;
-  if (!key) {
-    throw new Error("NEXT_POST_HOG_KEY is not set");
-  }
+function authHeaders(key: string): HeadersInit {
   return {
     Authorization: `Bearer ${key}`,
     "Content-Type": "application/json",
   };
 }
 
+async function getKey(): Promise<string> {
+  const key = await getPosthogKey();
+  if (!key) {
+    throw new Error(
+      "PostHog API key not set. Add one in Dashboard → Integration, or set NEXT_POST_HOG_KEY in .env.local."
+    );
+  }
+  return key;
+}
+
 export async function posthogFetch<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
+  const key = await getKey();
   const url = `${POSTHOG_BASE}/api/projects/${PROJECT_ID}${path}`;
   const res = await fetch(url, {
     ...options,
-    headers: { ...getAuthHeaders(), ...options.headers },
+    headers: { ...authHeaders(key), ...(options.headers as HeadersInit) },
     cache: "no-store",
   });
   if (!res.ok) {
@@ -30,11 +39,12 @@ export async function posthogFetch<T>(
 }
 
 export async function posthogGet<T>(path: string, searchParams?: Record<string, string>): Promise<T> {
+  const key = await getKey();
   const url = searchParams
     ? `${POSTHOG_BASE}/api/projects/${PROJECT_ID}${path}?${new URLSearchParams(searchParams)}`
     : `${POSTHOG_BASE}/api/projects/${PROJECT_ID}${path}`;
   const res = await fetch(url, {
-    headers: getAuthHeaders(),
+    headers: authHeaders(key),
     cache: "no-store",
   });
   if (!res.ok) {
@@ -45,9 +55,10 @@ export async function posthogGet<T>(path: string, searchParams?: Record<string, 
 }
 
 export async function posthogPost<T>(path: string, body: unknown): Promise<T> {
+  const key = await getKey();
   const res = await fetch(`${POSTHOG_BASE}/api/projects/${PROJECT_ID}${path}`, {
     method: "POST",
-    headers: getAuthHeaders(),
+    headers: authHeaders(key),
     body: JSON.stringify(body),
     cache: "no-store",
   });
@@ -59,9 +70,10 @@ export async function posthogPost<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function posthogPatch<T>(path: string, body: unknown): Promise<T> {
+  const key = await getKey();
   const res = await fetch(`${POSTHOG_BASE}/api/projects/${PROJECT_ID}${path}`, {
     method: "PATCH",
-    headers: getAuthHeaders(),
+    headers: authHeaders(key),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
