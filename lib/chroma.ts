@@ -8,7 +8,8 @@ async function loadChromaClient(): Promise<unknown | null> {
   if (!process.env.CHROMA_API_KEY) return null;
   if (client !== undefined) return client;
   try {
-    const { CloudClient } = await import("chromadb").catch(() => ({ CloudClient: null }));
+    // webpackIgnore prevents Next.js file tracer from including chromadb in the serverless bundle (Vercel 250 MB limit).
+    const { CloudClient } = await import(/* webpackIgnore: true */ "chromadb").catch(() => ({ CloudClient: null }));
     if (!CloudClient) {
       client = null;
       return null;
