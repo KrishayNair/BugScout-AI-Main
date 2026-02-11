@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
 import { monitoring } from "@/lib/db/schema";
 import { VectorSyncService } from "@/lib/vector-sync.service";
@@ -17,6 +18,10 @@ type RecordingPayload = {
 };
 
 export async function POST(request: NextRequest) {
+  const { userId } = await auth();
+  if (!userId) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
   if (!process.env.DATABASE_URL) {
     return Response.json({ ok: false, message: "DATABASE_URL not set" }, { status: 503 });
   }
@@ -26,6 +31,7 @@ export async function POST(request: NextRequest) {
     if (list.length === 0) return Response.json({ ok: true, inserted: 0 });
 
     const rows = list.map((r) => ({
+      userId,
       recordingId: r.id,
       distinctId: r.distinct_id ?? null,
       recordingDuration: r.recording_duration ?? null,
@@ -41,7 +47,7 @@ export async function POST(request: NextRequest) {
     await db
       .insert(monitoring)
       .values(rows)
-      .onConflictDoNothing({ target: monitoring.recordingId });
+      .onConflictDoNothing({ target: [monitoring.userId, monitoring.recordingId] });
 
     VectorSyncService.syncMonitoring(rows).catch(() => {});
 

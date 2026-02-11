@@ -11,12 +11,14 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * PostHog session/recording data. Only new records inserted (recording_id unique).
+ * PostHog session/recording data. Only new records inserted (recording_id unique per user).
+ * Scoped by userId (Clerk) so each user sees only their sessions.
  */
 export const monitoring = pgTable(
   "monitoring",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id"), // Clerk user id; null = legacy
     recordingId: text("recording_id").notNull(),
     distinctId: text("distinct_id"),
     recordingDuration: integer("recording_duration"),
@@ -29,16 +31,19 @@ export const monitoring = pgTable(
     payload: jsonb("payload"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [uniqueIndex("monitoring_recording_id_idx").on(t.recordingId)]
+  (t) => [uniqueIndex("monitoring_user_recording_idx").on(t.userId, t.recordingId)]
 );
 
 /**
  * Issues from Issue Monitoring Agent + resolution/approval state.
- * One row per recording (upsert by recording_id).
+ * One row per (user, recording). Scoped by userId (Clerk) so each user sees only their issues.
  */
-export const issues = pgTable("issues", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  recordingId: text("recording_id").notNull().unique(),
+export const issues = pgTable(
+  "issues",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id"), // Clerk user id; null = legacy
+    recordingId: text("recording_id").notNull(),
   posthogCategoryId: text("posthog_category_id").notNull(),
   posthogIssueTypeId: text("posthog_issue_type_id").notNull(),
   title: text("title").notNull(),
@@ -54,7 +59,9 @@ export const issues = pgTable("issues", {
   approvedAt: timestamp("approved_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-});
+  },
+  (t) => [uniqueIndex("issues_user_recording_idx").on(t.userId, t.recordingId)]
+);
 
 /**
  * Revision instructions and resulting fix (multiple per issue).

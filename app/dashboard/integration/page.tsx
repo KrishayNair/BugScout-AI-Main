@@ -14,6 +14,8 @@ export default function IntegrationPage() {
   const [emailError, setEmailError] = useState<string | null>(null);
   const [emailAdding, setEmailAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [testEmailSending, setTestEmailSending] = useState(false);
+  const [testEmailMessage, setTestEmailMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   function loadStatus() {
     setLoading(true);
@@ -235,9 +237,45 @@ export default function IntegrationPage() {
             >
               {emailAdding ? "Adding…" : "Add email"}
             </button>
+            <button
+              type="button"
+              disabled={testEmailSending || (!emailInput.trim() && notificationEmails.length === 0)}
+              onClick={async () => {
+                const email = emailInput.trim() || notificationEmails[0]?.email;
+                if (!email) return;
+                setTestEmailMessage(null);
+                setTestEmailSending(true);
+                try {
+                  const r = await fetch("/api/notifications/emails/test", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email }),
+                  });
+                  const data = await r.json();
+                  if (r.ok && data.ok) {
+                    setTestEmailMessage({ type: "success", text: "Test email sent. Check your inbox (and spam)." });
+                  } else {
+                    setTestEmailMessage({ type: "error", text: data.error ?? "Failed to send test email." });
+                  }
+                } catch {
+                  setTestEmailMessage({ type: "error", text: "Request failed." });
+                } finally {
+                  setTestEmailSending(false);
+                }
+              }}
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:opacity-50"
+              title={!emailInput.trim() && notificationEmails.length > 0 ? "Sends to first saved email" : undefined}
+            >
+              {testEmailSending ? "Sending…" : "Send test email"}
+            </button>
           </div>
           {emailError && (
             <p className="text-sm text-red-600">{emailError}</p>
+          )}
+          {testEmailMessage && (
+            <p className={`text-sm ${testEmailMessage.type === "success" ? "text-green-600" : "text-red-600"}`}>
+              {testEmailMessage.text}
+            </p>
           )}
           {notificationEmails.length > 0 ? (
             <ul className="space-y-2">
@@ -272,7 +310,7 @@ export default function IntegrationPage() {
         </div>
 
         <div className="mt-6 border-t border-gray-100 pt-6">
-          <h3 className="text-sm font-semibold text-gray-900">Setup</h3>
+          <h3 className="text-sm font-semibold text-gray-900">Email setup</h3>
           <p className="mt-2 text-sm text-gray-600">
             Add <code className="rounded bg-gray-100 px-1">RESEND_API_KEY</code> and{" "}
             <code className="rounded bg-gray-100 px-1">RESEND_FROM_EMAIL</code> to your{" "}
@@ -280,8 +318,37 @@ export default function IntegrationPage() {
             <a href="https://resend.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
               resend.com
             </a>
-            . Without these, emails will not be sent.
+            . Use a verified domain for <code className="rounded bg-gray-100 px-1">RESEND_FROM_EMAIL</code> or{" "}
+            <code className="rounded bg-gray-100 px-1">onboarding@resend.dev</code> for testing. Without these, emails will not be sent.
           </p>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#4A154B]/10">
+            <svg className="h-6 w-6 text-[#4A154B]" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Slack</h2>
+            <p className="text-sm text-gray-500">
+              Post new-issue alerts to a Slack channel via Incoming Webhook.
+            </p>
+          </div>
+        </div>
+        <div className="mt-6 space-y-2">
+          <p className="text-sm text-gray-600">
+            When new issues are detected, a message is sent to the Slack channel tied to your webhook URL.
+          </p>
+          <h3 className="text-sm font-semibold text-gray-900">Setup</h3>
+          <ol className="list-inside list-decimal space-y-1 text-sm text-gray-600">
+            <li>In Slack: Apps → Incoming Webhooks → Add to Slack (or create an app with Incoming Webhooks).</li>
+            <li>Choose the channel and copy the webhook URL.</li>
+            <li>Add to <code className="rounded bg-gray-100 px-1">.env.local</code>: <code className="rounded bg-gray-100 px-1">SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...</code></li>
+            <li>Restart the app. New issues will post to that channel.</li>
+          </ol>
         </div>
       </section>
         </div>
