@@ -1,7 +1,10 @@
 import { NextRequest } from "next/server";
-import { getPostHogIssueCategoriesForLLM } from "@/lib/posthog-issue-categories";
+import { db } from "@/lib/db";
+import { logs as logsTable } from "@/lib/db/schema";
 import { getCodebaseMapForLLM } from "@/lib/codebase-map";
 import type { MonitoredIssue } from "@/lib/issues-types";
+import { getPostHogIssueCategoriesForLLM } from "@/lib/posthog-issue-categories";
+import { desc } from "drizzle-orm";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 
@@ -30,15 +33,33 @@ export type PageEventSummary = {
   properties?: Record<string, unknown>;
 };
 
+/** Per-recording event details from PostHog ($exception, $rageclick, $dead_click). */
+export type SessionEventDetail = {
+  event: string;
+  timestamp?: string;
+  message?: string;
+  type?: string;
+  url?: string;
+  element?: string;
+  selector?: string;
+};
+
 type RequestBody = {
   recordings: RecordingSummary[];
   pageEvents?: PageEventSummary[];
+  /** Detailed events per recording (exceptions, rage/dead clicks with message, url, element). */
+  sessionEvents?: Record<string, SessionEventDetail[]>;
 };
 
-function buildSessionSummary(recordings: RecordingSummary[], pageEvents?: PageEventSummary[]): string {
+function buildSessionSummary(
+  recordings: RecordingSummary[],
+  pageEvents?: PageEventSummary[],
+  sessionEvents?: Record<string, SessionEventDetail[]>
+): string {
   const recLines = recordings.map((r) => {
     const parts = [
-      `Recording ${r.recordingId}:`,
+      `Session ID: ${r.recordingId}`,
+      r.startTime ? `first event time: ${r.startTime}` : null,
       r.consoleErrorCount != null ? `${r.consoleErrorCount} console error(s)` : null,
       r.clickCount != null ? `${r.clickCount} clicks` : null,
       (r.rageClickCount ?? 0) > 0 ? `${r.rageClickCount} rage click(s)` : null,
@@ -49,7 +70,29 @@ function buildSessionSummary(recordings: RecordingSummary[], pageEvents?: PageEv
     ].filter(Boolean);
     return parts.join(", ");
   });
-  let out = "Session recordings:\n" + recLines.join("\n");
+  let out =
+    "Consider ALL events below for potential risks and issues (exceptions, rage/dead clicks, repeated errors, UX friction, patterns). Create an issue for each session that has any such risk.\n\n";
+  out += "Session recordings (Session ID + counts + time):\n" + recLines.join("\n");
+
+  if (sessionEvents && Object.keys(sessionEvents).length > 0) {
+    out += "\n\nDetailed events per Session ID (exceptions, rage clicks, dead clicks) — use these to write accurate titles and descriptions. Include Session ID and time faced in each issue:\n";
+    for (const [recId, events] of Object.entries(sessionEvents)) {
+      if (!events?.length) continue;
+      const times = events.map((e) => e.timestamp).filter(Boolean);
+      out += `\nSession ID: ${recId}${times.length ? `. Times faced: ${times.join(", ")}` : ""}\n`;
+      for (const e of events) {
+        const parts = [e.event];
+        if (e.message) parts.push(`message: ${e.message}`);
+        if (e.type) parts.push(`type: ${e.type}`);
+        if (e.url) parts.push(`url: ${e.url}`);
+        if (e.element) parts.push(`element: ${e.element}`);
+        if (e.selector) parts.push(`selector: ${e.selector}`);
+        if (e.timestamp) parts.push(`at ${e.timestamp}`);
+        out += `  - ${parts.join(" | ")}\n`;
+      }
+    }
+  }
+
   if (pageEvents?.length) {
     out += "\n\nPage/events during session:\n";
     out += pageEvents
@@ -76,26 +119,57 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as RequestBody;
     const recordings = Array.isArray(body.recordings) ? body.recordings : [];
     const pageEvents = Array.isArray(body.pageEvents) ? body.pageEvents : undefined;
+    const sessionEvents = body.sessionEvents && typeof body.sessionEvents === "object" ? body.sessionEvents : undefined;
 
     if (recordings.length === 0) {
       return Response.json({ issues: [], agent: "issue-monitoring" });
     }
 
-    const sessionSummary = buildSessionSummary(recordings, pageEvents);
+    const sessionSummary = buildSessionSummary(recordings, pageEvents, sessionEvents);
     const posthogCategories = getPostHogIssueCategoriesForLLM();
     const codebaseMap = getCodebaseMapForLLM();
+
+    let logsContext = "";
+    if (process.env.DATABASE_URL) {
+      try {
+        const recentLogs = await db
+          .select({
+            title: logsTable.title,
+            description: logsTable.description,
+            severity: logsTable.severity,
+            suggestedFix: logsTable.suggestedFix,
+          })
+          .from(logsTable)
+          .orderBy(desc(logsTable.createdAt))
+          .limit(15);
+        if (recentLogs.length > 0) {
+          logsContext =
+            "\n\nRecent resolved/similar issues from logs (for context; consider when describing severity or similar patterns):\n" +
+            recentLogs
+              .map(
+                (l) =>
+                  `- ${l.title} (${l.severity}): ${l.description.slice(0, 120)}... | fix: ${(l.suggestedFix ?? "").slice(0, 80)}...`
+              )
+              .join("\n");
+        }
+      } catch {
+        // non-fatal
+      }
+    }
 
     const systemPrompt = `You are an Issue Monitoring Agent. You analyze PostHog live session data (session replay summaries and page events) and map each problem to PostHog's issue taxonomy. You do NOT suggest fixes — you only classify and pinpoint code location for a downstream Solution Agent.
 
 Steps:
-1. For each session recording with issues, pick exactly one PostHog category and issue type from the JSON below (use category id and issueTypes[].id).
-2. Assign a severity tag: "Critical" (blocking, data loss, security), "High" (major UX/reliability), "Medium" (noticeable but workaround exists), "Low" (minor, cosmetic). Base it on impact and frequency signals (e.g. many rage clicks + errors = Critical; few dead clicks = Medium/Low).
-3. Write a short title and 2–3 sentence description of what went wrong (from session replay: rage clicks, dead clicks, console errors, drop-offs, etc.).
-4. Using the codebase map, identify the most likely file(s) where the bug or UX issue originates (codeLocation: file path). Prefer exact paths from the map (e.g. src/app/dashboard/resume-builder/page.tsx).
-5. If you can infer a specific component or area (e.g. submit button, form handler), add a brief codeSnippetHint: 1–2 lines describing where to look or a minimal code snippet. Do not invent code — only hint based on route/URL and issue type.
+1. Use ALL provided data: every session's event set (exceptions, rage/dead clicks, counts, page events). Look for any possible risks or issues — not only obvious errors but patterns, repeated failures, UX friction. Create an issue for each session/recording that has any such risk.
+2. For each session with issues, pick exactly one PostHog category and issue type from the JSON below (use category id and issueTypes[].id). Prefer "js-frontend-errors" when exception details are present; use rage/dead-click types when those events are present.
+3. Assign a severity tag: "Critical" (blocking, data loss, security), "High" (major UX/reliability, repeated rage/dead clicks), "Medium" (noticeable but workaround exists), "Low" (minor, cosmetic). Base it on impact and actual event details.
+4. Write a short title and 2–3 sentence description that references the real signals. In every description you MUST include: (a) "Session ID: <recordingId>" and (b) "Time faced: <time from the events for this session, e.g. first occurrence or list if multiple>". Then add the issue details (exception message, URL/element, etc.). Be specific, not generic.
+5. Using the codebase map, identify the most likely file(s) where the bug or UX issue originates (codeLocation: file path). Use the event URL/path and element/selector when present.
+6. If you can infer a specific component or area from the event element/selector or URL, add a brief codeSnippetHint. Do not invent code — only hint based on the provided event data.
 
 PostHog issue categories (map each issue to one category and one issueType id):
 ${posthogCategories}
+${logsContext}
 
 ${codebaseMap}
 

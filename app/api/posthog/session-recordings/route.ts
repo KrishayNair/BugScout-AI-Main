@@ -3,7 +3,7 @@ import { posthogGet } from "@/lib/posthog-api";
 
 export const dynamic = "force-dynamic";
 
-const RECORDINGS_PARAMS = new Set(["limit", "offset", "date_from", "date_to"]);
+const RECORDINGS_PARAMS = new Set(["limit", "offset", "date_from", "date_to", "duration__gt"]);
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,7 +12,9 @@ export async function GET(request: NextRequest) {
     searchParams.forEach((value, key) => {
       if (RECORDINGS_PARAMS.has(key)) params[key] = value;
     });
-    const data = await posthogGet("/session_recordings/", Object.keys(params).length ? params : undefined);
+    // Ensure we request a reasonable limit so PostHog returns more than default (e.g. 10)
+    if (!params.limit) params.limit = "100";
+    const data = await posthogGet("/session_recordings/", params);
     return Response.json(data);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";

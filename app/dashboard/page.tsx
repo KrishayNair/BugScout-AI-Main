@@ -125,7 +125,6 @@ export default function DashboardHomePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [recordings, setRecordings] = useState<Recording[]>([]);
-  const [personsCount, setPersonsCount] = useState<number | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [trendData, setTrendData] = useState<number[]>([]);
   const [flagsCount, setFlagsCount] = useState<number | null>(null);
@@ -158,9 +157,8 @@ export default function DashboardHomePage() {
       setError(null);
       const t = `_t=${Date.now()}`;
       try {
-        const [recRes, personsRes, eventsRes, queryRes, flagsRes] = await Promise.allSettled([
+        const [recRes, eventsRes, queryRes, flagsRes] = await Promise.allSettled([
           fetch(`/api/posthog/session-recordings?limit=20&date_from=-7d&${t}`),
-          fetch(`/api/posthog/persons?limit=1&${t}`),
           fetch(`/api/posthog/events?limit=50&${t}`),
           fetch("/api/posthog/query", {
             method: "POST",
@@ -180,12 +178,10 @@ export default function DashboardHomePage() {
 
         const apiErrors: string[] = [];
         if (recRes.status === "rejected") apiErrors.push("Recordings failed");
-        if (personsRes.status === "rejected") apiErrors.push("Persons failed");
         if (eventsRes.status === "rejected") apiErrors.push("Events failed");
         if (queryRes.status === "rejected") apiErrors.push("Query failed");
         if (flagsRes.status === "rejected") apiErrors.push("Flags failed");
         if (recRes.status === "fulfilled" && !recRes.value.ok) apiErrors.push(`Recordings ${recRes.value.status}`);
-        if (personsRes.status === "fulfilled" && !personsRes.value.ok) apiErrors.push(`Persons ${personsRes.value.status}`);
         if (eventsRes.status === "fulfilled" && !eventsRes.value.ok) apiErrors.push(`Events ${eventsRes.value.status}`);
         if (queryRes.status === "fulfilled" && !queryRes.value.ok) apiErrors.push(`Query ${queryRes.value.status}`);
         if (flagsRes.status === "fulfilled" && !flagsRes.value.ok) apiErrors.push(`Flags ${flagsRes.value.status}`);
@@ -193,15 +189,6 @@ export default function DashboardHomePage() {
         const recData = recRes.status === "fulfilled" && recRes.value.ok ? await recRes.value.json() : null;
         const recordingsList = Array.isArray(recData?.results) ? recData.results : [];
         setRecordings(recordingsList);
-
-        const personsData = personsRes.status === "fulfilled" && personsRes.value.ok ? await personsRes.value.json() : null;
-        const totalPersons =
-          typeof personsData?.count === "number"
-            ? personsData.count
-            : Array.isArray(personsData?.results)
-              ? personsData.results.length
-              : null;
-        if (totalPersons !== null) setPersonsCount(totalPersons);
 
         const eventsData = eventsRes.status === "fulfilled" && eventsRes.value.ok ? await eventsRes.value.json() : null;
         if (eventsData?.results) setEvents(eventsData.results);
@@ -225,7 +212,7 @@ export default function DashboardHomePage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               recordingsCount: recData?.results?.length ?? 0,
-              uniqueUsers: personsData?.count ?? personsData?.results?.length ?? 0,
+              uniqueUsers: 0,
               pageviewsTotal: series?.data
                 ? (Array.isArray(series.data) ? series.data : []).reduce((a: number, b: unknown) => a + (Number(b) || 0), 0)
                 : 0,
@@ -287,19 +274,7 @@ export default function DashboardHomePage() {
   return (
     <div className="flex h-full flex-col">
       <DashboardHeader user={user} />
-      <div className="flex-1 overflow-auto p-6">
-        {error && (
-          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            {error}. Ensure <code className="rounded bg-amber-100 px-1">NEXT_POST_HOG_KEY</code> is set in .env.local.
-          </div>
-        )}
-
-        {!error && events.length > 0 && (recordings.length === 0 || personsCount === 0 || personsCount === null) && (
-          <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-            <strong>Why 0 recordings or 0 users?</strong> Session replay must be enabled in PostHog (Project settings → Session replay). Unique users appear after <code className="rounded bg-blue-100 px-1">posthog.identify()</code> or when PostHog creates persons from events.
-          </div>
-        )}
-
+      <div className="flex-1 min-h-0 overflow-auto p-6">
         {/* Welcome + Quick actions */}
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -311,14 +286,14 @@ export default function DashboardHomePage() {
           <div className="flex flex-wrap gap-2">
             <Link
               href="/dashboard/issues"
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-primary/90"
+              className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-primary/25 transition hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-xl hover:shadow-primary/30"
             >
               <IssuesIcon className="h-4 w-4" />
               View issues
             </Link>
             <Link
               href="/dashboard/integration"
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+              className="inline-flex items-center gap-2 rounded-xl border border-primary/20 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/30 hover:bg-gray-50 hover:shadow-md"
             >
               <IntegrationIcon className="h-4 w-4" />
               Integration
@@ -327,44 +302,53 @@ export default function DashboardHomePage() {
         </div>
 
         {/* KPI row */}
-        <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <KpiCard title="Session recordings" value={recordings.length} sub="Last 7 days" highlight />
-          <KpiCard title="Unique users" value={personsCount ?? "—"} sub="Persons in project" />
           <KpiCard title="Pageviews" value={totalPageviews.toLocaleString()} sub="Last 7 days" />
           <KpiCard title="Sessions with errors" value={recordingsWithErrors} sub="Console / rage / dead" />
           <KpiCard title="Feature flags" value={flagsCount ?? "—"} sub="Active" />
         </div>
 
         {/* AI Insights - full width */}
-        <section className="mb-8 rounded-xl border border-gray-200 bg-gradient-to-br from-primary/5 to-white p-6 shadow-sm">
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <SparklesIcon className="h-5 w-5 text-primary" />
-            </span>
-            <div>
-              <h3 className="font-semibold text-gray-900">AI Insights</h3>
-              <p className="text-xs text-gray-500">Summary from your analytics</p>
+        <section className="group relative mb-8 overflow-hidden rounded-2xl border border-primary/10 bg-gradient-to-br from-primary/[0.06] via-white to-primary/[0.04] p-6 shadow-lg shadow-primary/5 transition-all duration-300 hover:shadow-xl hover:shadow-primary/10 sm:p-8">
+          {/* Subtle grid pattern */}
+          <div className="pointer-events-none absolute inset-0 opacity-[0.02]" style={{ backgroundImage: "radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)", backgroundSize: "24px 24px" }} />
+          <div className="relative">
+            <div className="flex items-center gap-4">
+              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/10 shadow-inner ring-2 ring-primary/10 transition-transform duration-300 group-hover:scale-105">
+                <SparklesIcon className="h-6 w-6 text-primary drop-shadow-sm" />
+              </span>
+              <div>
+                <h3 className="text-lg font-bold tracking-tight text-gray-900">AI Insights</h3>
+                <p className="mt-0.5 text-sm text-gray-500">Summary from your analytics</p>
+              </div>
             </div>
+            {insightsLoading ? (
+              <div className="mt-6 flex items-center gap-3 rounded-xl bg-white/70 py-4 px-4 backdrop-blur-sm">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                <span className="text-sm font-medium text-gray-600">Generating insights…</span>
+              </div>
+            ) : insights.length > 0 ? (
+              <ul className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {insights.map((line, i) => (
+                  <li
+                    key={i}
+                    className="animate-insight-in flex gap-3 rounded-xl border border-white/80 bg-white/80 py-3.5 px-4 shadow-sm backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md hover:shadow-primary/5"
+                    style={{ animationDelay: `${i * 80}ms` }}
+                  >
+                    <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary ring-4 ring-primary/10" />
+                    <span className="text-sm leading-relaxed text-gray-700">{line}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="mt-6 rounded-xl border border-dashed border-gray-200 bg-white/60 py-6 px-5 text-center">
+                <p className="text-sm text-gray-600">
+                  Add <code className="rounded-md bg-gray-100 px-2 py-0.5 font-mono text-xs text-gray-700">OPENAI_API_KEY</code> to .env.local for AI-powered insights.
+                </p>
+              </div>
+            )}
           </div>
-          {insightsLoading ? (
-            <div className="mt-5 flex items-center gap-2 text-sm text-gray-500">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-              Generating insights…
-            </div>
-          ) : insights.length > 0 ? (
-            <ul className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {insights.map((line, i) => (
-                <li key={i} className="flex gap-2 rounded-lg bg-white/60 py-2 pr-3 text-sm text-gray-700">
-                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                  {line}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-5 text-sm text-gray-500">
-              Add <code className="rounded bg-gray-100 px-1">OPENAI_API_KEY</code> to .env.local for AI-powered insights.
-            </p>
-          )}
         </section>
 
         {(replayEmbedUrl || replayLoading || replayError) && (
@@ -382,19 +366,19 @@ export default function DashboardHomePage() {
         {/* Main grid: Recordings + Chart | Events */}
         <div className="grid gap-6 xl:grid-cols-3">
           <div className="xl:col-span-2 space-y-6">
-            <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+            <section className="rounded-2xl border border-primary/10 bg-white p-6 shadow-lg shadow-primary/5 transition-all duration-300 hover:shadow-xl hover:shadow-primary/10">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <h3 className="text-base font-semibold text-gray-900">Session recordings</h3>
                   <p className="mt-0.5 text-sm text-gray-500">Watch replay or open in PostHog</p>
                 </div>
                 {recordings.length > 0 && (
-                  <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+                  <span className="rounded-full border border-primary/10 bg-primary/5 px-3 py-1 text-xs font-medium text-gray-700">
                     {recordings.length} total
                   </span>
                 )}
               </div>
-              <div className="mt-4 overflow-x-auto rounded-lg border border-gray-100">
+              <div className="mt-4 overflow-x-auto rounded-xl border border-gray-100">
                 {recordings.length === 0 ? (
                   <div className="py-12 text-center">
                     <p className="text-sm text-gray-500">No recordings yet</p>
@@ -453,7 +437,7 @@ export default function DashboardHomePage() {
             </section>
 
             {trendData.length > 0 && (
-              <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+              <section className="rounded-2xl border border-primary/10 bg-white p-6 shadow-lg shadow-primary/5 transition-all duration-300 hover:shadow-xl hover:shadow-primary/10">
                 <h3 className="text-base font-semibold text-gray-900">Pageviews · Last 7 days</h3>
                 <div className="mt-4 flex items-end gap-1.5">
                   {trendData.map((val, i) => (
@@ -477,7 +461,7 @@ export default function DashboardHomePage() {
             )}
           </div>
 
-          <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+          <section className="rounded-2xl border border-primary/10 bg-white p-6 shadow-lg shadow-primary/5 transition-all duration-300 hover:shadow-xl hover:shadow-primary/10">
             <div className="flex items-center justify-between gap-2">
               <div>
                 <h3 className="text-base font-semibold text-gray-900">Recent events</h3>
@@ -491,7 +475,7 @@ export default function DashboardHomePage() {
             </div>
             <ul className="mt-4 max-h-[420px] space-y-2 overflow-y-auto pr-1">
               {events.length === 0 ? (
-                <li className="rounded-lg border border-dashed border-gray-200 py-8 text-center text-sm text-gray-500">
+                <li className="rounded-xl border border-dashed border-primary/10 py-8 text-center text-sm text-gray-500">
                   No events yet
                 </li>
               ) : (
@@ -500,7 +484,7 @@ export default function DashboardHomePage() {
                   return (
                     <li
                       key={e.id ?? i}
-                      className="rounded-lg border border-gray-100 bg-gray-50/50 p-3 text-sm transition hover:border-gray-200"
+                      className="rounded-xl border border-primary/5 bg-white/80 p-3 text-sm shadow-sm transition hover:-translate-y-0.5 hover:border-primary/15 hover:shadow-md"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <span className="font-medium text-gray-900">{e.event ?? "—"}</span>
@@ -544,17 +528,17 @@ function ReplayModal({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-xl bg-white shadow-xl"
+        className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-2xl border border-primary/10 bg-white shadow-2xl shadow-primary/10"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 py-3">
           <h3 className="text-lg font-semibold text-gray-900">Session replay</h3>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+            className="rounded-xl p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700"
             aria-label="Close"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -589,11 +573,11 @@ function ReplayModal({
 
 function DashboardHeader({ user }: { user: { firstName?: string | null; username?: string | null; primaryEmailAddress?: { emailAddress?: string } | null } | null | undefined }) {
   return (
-    <header className="flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
+    <header className="flex shrink-0 items-center justify-between border-b border-primary/10 bg-white px-6 py-4 shadow-sm">
       <div className="flex items-center gap-2">
         <h1 className="text-xl font-semibold text-gray-900">Dashboard</h1>
       </div>
-      <div className="flex items-center gap-3 border-l border-gray-200 pl-4">
+      <div className="flex items-center gap-3 border-l border-primary/10 pl-4">
         <div className="text-right text-sm">
           <p className="font-medium text-gray-900">{user?.firstName ?? user?.username ?? "User"}</p>
           <p className="text-gray-500">{user?.primaryEmailAddress?.emailAddress ?? ""}</p>
@@ -617,8 +601,10 @@ function KpiCard({
 }) {
   return (
     <div
-      className={`rounded-xl p-5 shadow-sm ${
-        highlight ? "bg-primary text-white" : "bg-white border border-gray-200"
+      className={`rounded-2xl p-5 shadow-lg transition-all duration-300 hover:shadow-xl ${
+        highlight
+          ? "border border-primary/20 bg-gradient-to-br from-primary to-primary-dark text-white shadow-primary/20 hover:shadow-primary/30"
+          : "border border-primary/10 bg-white shadow-primary/5 hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-primary/10"
       }`}
     >
       <p className={`text-2xl font-bold ${highlight ? "text-white" : "text-gray-900"}`}>{value}</p>

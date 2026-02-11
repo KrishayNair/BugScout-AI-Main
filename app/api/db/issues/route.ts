@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { issues as issuesTable } from "@/lib/db/schema";
+import { developerNotificationEmails, issues as issuesTable } from "@/lib/db/schema";
+import { sendNewIssueAlert } from "@/lib/email";
 import { VectorSyncService } from "@/lib/vector-sync.service";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   if (!process.env.DATABASE_URL) {
@@ -41,6 +42,18 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const list = Array.isArray(body.issues) ? (body.issues as IssueUpsert[]) : [];
+    if (list.length === 0) {
+      return Response.json({ ok: true });
+    }
+
+    const recordingIds = list.map((i) => i.recordingId);
+    const existing = await db
+      .select({ recordingId: issuesTable.recordingId })
+      .from(issuesTable)
+      .where(inArray(issuesTable.recordingId, recordingIds));
+    const existingSet = new Set(existing.map((r) => r.recordingId));
+    const newIssues = list.filter((i) => !existingSet.has(i.recordingId));
+
     for (const i of list) {
       await db
         .insert(issuesTable)
@@ -75,6 +88,29 @@ export async function POST(request: NextRequest) {
     await VectorSyncService.syncIssues(list).catch((err) => {
       console.error("[POST /api/db/issues] Chroma sync failed:", err);
     });
+
+    if (newIssues.length > 0) {
+      const recipients = await db.select().from(developerNotificationEmails);
+      if (recipients.length === 0) {
+        console.warn("[POST /api/db/issues] New issues detected but no notification emails configured. Add emails in Integration settings.");
+      } else {
+        console.info("[POST /api/db/issues] Sending new-issue alerts to", recipients.length, "recipient(s).");
+        for (const row of recipients) {
+          sendNewIssueAlert(
+            row.email,
+            newIssues.map((i) => ({
+              title: i.title,
+              description: i.description,
+              severity: i.severity,
+              recordingId: i.recordingId,
+            }))
+          ).then((r) => {
+            if (!r.ok) console.error("[POST /api/db/issues] Email to", row.email, "failed:", r.error);
+          }).catch((err) => console.error("[POST /api/db/issues] Email to", row.email, "failed:", err));
+        }
+      }
+    }
+
     return Response.json({ ok: true });
   } catch (e) {
     console.error("POST /api/db/issues error:", e);

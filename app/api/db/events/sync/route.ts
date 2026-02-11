@@ -2,7 +2,6 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { posthogEvents } from "@/lib/db/schema";
 import { posthogGet } from "@/lib/posthog-api";
-import { VectorSyncService } from "@/lib/vector-sync.service";
 
 export const dynamic = "force-dynamic";
 
@@ -111,7 +110,6 @@ export async function GET(request: NextRequest) {
         .insert(posthogEvents)
         .values(rows)
         .onConflictDoNothing({ target: posthogEvents.posthogEventId });
-      VectorSyncService.syncPosthogEvents(rows).catch(() => {});
       totalSynced += rawList.length;
       if (rawList.length < PAGE_SIZE) break;
       offset += PAGE_SIZE;

@@ -6,9 +6,15 @@
  * 1. Ingestion: When data is written to Neon (API routes), call sync*() with the new rows.
  * 2. Manual sync: GET /api/db/sync-to-chroma or npm run vector:sync → syncAll().
  * 3. Auto-sync: GET /api/cron/vector-sync (e.g. Vercel Cron every 10 min) → syncAll().
+ *
+ * Set DISABLE_CHROMA_SYNC=true in .env.local to stop all automatic Chroma sync.
  */
 
 import { addToChroma, type ChromaDoc } from "@/lib/chroma";
+
+function isChromaSyncDisabled(): boolean {
+  return process.env.DISABLE_CHROMA_SYNC === "true" || process.env.DISABLE_CHROMA_SYNC === "1";
+}
 import { db } from "@/lib/db";
 import {
   issues as issuesTable,
@@ -59,7 +65,7 @@ type PosthogEventLike = Pick<
 export const VectorSyncService = {
   /** Sync monitoring rows to Chroma (call after saving to Neon). */
   async syncMonitoring(rows: MonitoringLike[]): Promise<void> {
-    if (rows.length === 0) return;
+    if (rows.length === 0 || isChromaSyncDisabled()) return;
     const docs: ChromaDoc[] = rows.map((r) => ({
       id: r.recordingId,
       document: JSON.stringify({
@@ -80,7 +86,7 @@ export const VectorSyncService = {
 
   /** Sync issues to Chroma (call after saving to Neon). Use row.id when present (from DB), else recordingId. */
   async syncIssues(rows: IssueLike[]): Promise<void> {
-    if (rows.length === 0) return;
+    if (rows.length === 0 || isChromaSyncDisabled()) return;
     const docs: ChromaDoc[] = rows.map((r) => ({
       id: r.id ?? r.recordingId,
       document: JSON.stringify({
@@ -99,7 +105,7 @@ export const VectorSyncService = {
 
   /** Sync logs to Chroma (call after saving to Neon). */
   async syncLogs(rows: LogLike[]): Promise<void> {
-    if (rows.length === 0) return;
+    if (rows.length === 0 || isChromaSyncDisabled()) return;
     const docs: ChromaDoc[] = rows.map((r, i) => ({
       id: r.id ? `${r.recordingId}-${r.id}` : `${r.recordingId}-${Date.now()}-${i}`,
       document: JSON.stringify({
@@ -118,7 +124,7 @@ export const VectorSyncService = {
 
   /** Sync PostHog events to Chroma (call after saving to Neon). */
   async syncPosthogEvents(rows: PosthogEventLike[]): Promise<void> {
-    if (rows.length === 0) return;
+    if (rows.length === 0 || isChromaSyncDisabled()) return;
     const docs: ChromaDoc[] = rows.map((r) => ({
       id: r.posthogEventId,
       document: JSON.stringify({
@@ -138,6 +144,9 @@ export const VectorSyncService = {
    * Read all data from Neon and sync to Chroma. Use for manual backfill or auto-sync (cron).
    */
   async syncAll(): Promise<{ monitoring: number; issues: number; logs: number; posthog_events: number }> {
+    if (isChromaSyncDisabled()) {
+      return { monitoring: 0, issues: 0, logs: 0, posthog_events: 0 };
+    }
     const monitoringRows = await db.select().from(monitoringTable);
     for (let i = 0; i < monitoringRows.length; i += BATCH) {
       await VectorSyncService.syncMonitoring(monitoringRows.slice(i, i + BATCH));

@@ -115,6 +115,24 @@ export const posthogEvents = pgTable(
   (t) => [uniqueIndex("posthog_events_posthog_event_id_idx").on(t.posthogEventId)]
 );
 
+/**
+ * Emails to notify when a new issue is detected. Add/remove from Integration page.
+ * Scoped by userId (Clerk) so each user has their own list.
+ */
+export const developerNotificationEmails = pgTable(
+  "developer_notification_emails",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id"), // Clerk user id; null = legacy (pre–per-user) row
+    email: text("email").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("developer_notification_emails_user_email_idx").on(t.userId, t.email)]
+);
+
+export type DeveloperNotificationEmailRow = typeof developerNotificationEmails.$inferSelect;
+export type DeveloperNotificationEmailInsert = typeof developerNotificationEmails.$inferInsert;
+
 export type LogRow = typeof logs.$inferSelect;
 export type LogInsert = typeof logs.$inferInsert;
 export type PosthogEventRow = typeof posthogEvents.$inferSelect;
