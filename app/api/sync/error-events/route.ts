@@ -185,17 +185,29 @@ export async function GET(request: NextRequest) {
     let newIssuesCount = 0;
 
     // Helper: run analyze + suggest-fix + save for a batch of recordings and sessionEvents
+    type MonitoredIssue = {
+      recordingId: string;
+      title?: string;
+      description?: string;
+      severity?: string;
+      codeLocation?: string;
+      codeSnippetHint?: string;
+      posthogCategoryId?: string;
+      posthogIssueTypeId?: string;
+      startUrl?: string;
+    };
+
     const runAgentAndSave = async (
       recordings: Array<{ recordingId: string; consoleErrorCount?: number; clickCount?: number; rageClickCount?: number; deadClickCount?: number; durationSeconds?: number; startUrl?: string; startTime?: string }>,
       sessionEvents: Record<string, SessionEventDetail[]>
     ): Promise<number> => {
       if (recordings.length === 0 || !baseUrl) return 0;
-      const analyzeData = await safeFetchJson<{ issues?: unknown[] }>(`${baseUrl}/api/issues/analyze`, {
+      const analyzeData = await safeFetchJson<{ issues?: MonitoredIssue[] }>(`${baseUrl}/api/issues/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ recordings, sessionEvents }),
       });
-      const monitoredIssues = Array.isArray(analyzeData?.issues) ? analyzeData.issues : [];
+      const monitoredIssues: MonitoredIssue[] = Array.isArray(analyzeData?.issues) ? analyzeData.issues : [];
       const recById = new Map(recordings.map((r) => [r.recordingId, r]));
       let suggestedFixes: Array<{ recordingId: string; suggestedFix?: string; codeLocation?: string }> = [];
       if (monitoredIssues.length > 0) {
@@ -209,7 +221,7 @@ export async function GET(request: NextRequest) {
         );
         suggestedFixes = Array.isArray(fixData?.suggestedFixes) ? fixData.suggestedFixes : [];
       }
-      const issuesToSave = monitoredIssues.map((m: { recordingId: string; title?: string; description?: string; severity?: string; codeLocation?: string; codeSnippetHint?: string; posthogCategoryId?: string; posthogIssueTypeId?: string; startUrl?: string }) => {
+      const issuesToSave = monitoredIssues.map((m) => {
         const fix = suggestedFixes.find((f) => f.recordingId === m.recordingId);
         const rec = recById.get(m.recordingId);
         const timeFaced = rec?.startTime ? new Date(rec.startTime).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) : "see events";

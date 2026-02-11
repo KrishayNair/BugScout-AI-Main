@@ -144,7 +144,7 @@ export default function WebAnalyticsPage() {
           const item = s as Record<string, unknown>;
           const label = String(item.breakdown_value ?? item.breakdownValue ?? item.label ?? "$direct");
           const data = (item.data ?? item.values) as unknown[];
-          const total = Array.isArray(data) ? data.reduce((a, n) => a + Number(n), 0) : Number(item.aggregated_value ?? item.count ?? 0);
+          const total = Array.isArray(data) ? data.reduce((a: number, n: unknown) => a + Number(n), 0) : Number(item.aggregated_value ?? item.count ?? 0);
           if (total > 0) byLabel[label] = (byLabel[label] ?? 0) + total;
         });
         referringFromQuery = Object.entries(byLabel)

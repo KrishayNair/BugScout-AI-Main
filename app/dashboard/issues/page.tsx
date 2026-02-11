@@ -396,9 +396,11 @@ export default function IssuesPage() {
           posthogCategoryId?: string;
           posthogIssueTypeId?: string;
           suggestedFix?: string | null;
+          startUrl?: string | null;
           status?: string;
           approved?: boolean;
           approvedRating?: number | null;
+          createdAt?: string;
         };
 
         const toIssueFromRecording = (rec: Recording, d: DbIssue): IssueFromRecording => ({
@@ -444,7 +446,7 @@ export default function IssuesPage() {
             const dbList = Array.isArray(dbData0?.issues) ? dbData0.issues : [];
             const eventOnly = dbList.filter((i: { recordingId?: string }) => i.recordingId?.startsWith(EVENT_ISSUE_PREFIX));
             if (eventOnly.length > 0 && !cancelled) {
-              const synthetic: IssueFromRecording[] = eventOnly.map((d: DbIssue & { createdAt?: string }) => {
+              const synthetic: IssueFromRecording[] = eventOnly.map((d: DbIssue) => {
                 const rec: Recording = {
                   id: d.recordingId,
                   start_time: d.createdAt,
@@ -667,7 +669,7 @@ export default function IssuesPage() {
             if (!d.recordingId?.startsWith(EVENT_ISSUE_PREFIX) || mergedIds.has(d.recordingId)) continue;
             const syntheticRec: Recording = {
               id: d.recordingId,
-              start_time: (d as DbIssue & { createdAt?: string }).createdAt,
+              start_time: d.createdAt,
               start_url: d.startUrl ?? undefined,
             };
             merged.push(

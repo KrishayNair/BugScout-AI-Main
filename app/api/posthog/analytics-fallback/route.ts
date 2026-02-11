@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
       (Array.isArray(data) ? data : null);
     const results = Array.isArray(rawResults) ? rawResults : [];
 
-    function getProps(evt: (typeof results)[0]): Record<string, unknown> {
+    const getProps = (evt: (typeof results)[0]): Record<string, unknown> => {
       const p = evt.properties;
       if (p == null) return {};
       if (typeof p === "object") return p;
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
         }
       }
       return {};
-    }
+    };
 
     const referring: Record<string, number> = {};
     const pageviewsByUser: Record<string, number> = {};
