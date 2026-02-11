@@ -1,12 +1,18 @@
-import { CloudClient } from "chromadb";
 import { getOpenAIEmbeddingFunction } from "./openai-embedding";
 
-let client: CloudClient | null = null;
+// Lazy-loaded to avoid pulling chromadb into serverless bundle (stays under Vercel 250 MB limit).
+// When chromadb is excluded via outputFileTracingExcludes, this returns null and Chroma sync is a no-op.
+let client: unknown = undefined;
 
-function getClient(): CloudClient | null {
+async function loadChromaClient(): Promise<unknown | null> {
   if (!process.env.CHROMA_API_KEY) return null;
-  if (client) return client;
+  if (client !== undefined) return client;
   try {
+    const { CloudClient } = await import("chromadb").catch(() => ({ CloudClient: null }));
+    if (!CloudClient) {
+      client = null;
+      return null;
+    }
     client = new CloudClient({
       apiKey: process.env.CHROMA_API_KEY,
       tenant: process.env.CHROMA_TENANT ?? "38d2507b-966b-47d3-b7a5-dd1385383481",
@@ -14,6 +20,7 @@ function getClient(): CloudClient | null {
     });
     return client;
   } catch {
+    client = null;
     return null;
   }
 }
@@ -44,7 +51,7 @@ export async function addToChroma(
   items: ChromaDoc[]
 ): Promise<void> {
   if (items.length === 0) return;
-  const chroma = getClient();
+  const chroma = await loadChromaClient();
   if (!chroma) return;
   const embeddingFunction = getOpenAIEmbeddingFunction();
   if (!embeddingFunction) {
@@ -54,7 +61,12 @@ export async function addToChroma(
     return;
   }
   try {
-    const collection = await chroma.getOrCreateCollection({
+    const chromaApi = chroma as {
+      getOrCreateCollection(opts: { name: string; embeddingFunction: unknown }): Promise<{
+        add(opts: { ids: string[]; documents: string[]; metadatas: Record<string, string | number | boolean>[] }): Promise<void>;
+      }>;
+    };
+    const collection = await chromaApi.getOrCreateCollection({
       name: collectionName,
       embeddingFunction,
     });
