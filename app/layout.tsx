@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+import { SuppressMetaMaskErrors } from "@/components/ErrorBoundary";
 import "./globals.css";
 
 const inter = Inter({
@@ -30,7 +31,10 @@ export default function RootLayout({
             rel="stylesheet"
           />
         </head>
-        <body className="font-sans">{children}</body>
+        <body className="font-sans">
+          <SuppressMetaMaskErrors />
+          {children}
+        </body>
       </html>
     </ClerkProvider>
   );
