@@ -585,6 +585,39 @@ export default function HomePage() {
           </div>
         </section>
 
+        {/* Website demo video - prominent, close under hero */}
+        <section className="relative overflow-hidden -mt-4 pt-0 pb-12 sm:-mt-6 sm:pt-0 sm:pb-16">
+          <div className="relative mx-auto w-[88%] max-w-7xl px-4 sm:px-6 lg:px-8">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.2 }}
+              transition={{ duration: 0.6, ease: smoothEase }}
+              className="text-center"
+            >
+              <h2 className="text-xl font-semibold text-gray-900 sm:text-2xl">See it in action</h2>
+              <p className="mt-2 text-sm text-gray-600 sm:text-base">Watch a quick demo of bugScoutAI in action.</p>
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.2 }}
+              transition={{ duration: 0.6, delay: 0.1, ease: smoothEase }}
+              className="mt-6 overflow-hidden rounded-2xl border border-gray-200/80 bg-gray-900 shadow-2xl shadow-gray-300/40"
+            >
+              <div className="relative w-full min-h-[48vh] aspect-video">
+                <iframe
+                  src="https://www.youtube.com/embed/mejBsvvPU5A?rel=0"
+                  title="bugScoutAI website demo"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                  className="absolute inset-0 h-full w-full"
+                />
+              </div>
+            </motion.div>
+          </div>
+        </section>
+
         {/* How it works */}
         <section id="how-it-works" ref={stepsRef} className="relative overflow-hidden py-24 sm:py-32">
           {/* Decorative filled and border circles - left/right alternating */}
